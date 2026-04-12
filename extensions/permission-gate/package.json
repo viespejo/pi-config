@@ -1,0 +1,11 @@
+{
+  "name": "permission-gate-extension",
+  "dependencies": {
+    "diff": "^8.0.2"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}
