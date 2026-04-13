@@ -1,13 +1,11 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import nodePath from "path";
-import { fileURLToPath, pathToFileURL } from "url";
 import { renderDiff } from "@mariozechner/pi-coding-agent";
-import fs from "fs";
 import {
   computeWriteDiffPreviewLocal,
   summarizeWriteForPrompt,
 } from "./write-preview.ts";
 import { computeEditsDiffLocalFallback } from "./edit-diff.ts";
+import { loadComputeEditsDiffOnce } from "./edit-diff-loader.ts";
 import { showDiffInCustomDialog } from "./diff-viewer.ts";
 import {
   defaultOptionsForTool,
@@ -31,100 +29,6 @@ export type { WritePreviewResult } from "./write-preview.ts";
 // for confirmation before allowing execution. Keeps an in-memory session
 // allow-list for the current agent process ("Always allow this session").
 
-// Module-scoped loader for computeEditsDiff. We attempt to load the internal
-// utility once per process and cache the result. This prevents repeated
-// filesystem searches on every tool call and avoids redundant concurrent
-// imports by reusing a single Promise.
-type ComputeEditsDiffFn = (p: string, e: any[], cwd: string) => Promise<any>;
-
-type DiffEngineSource =
-  | "internal:fs-search"
-  | "internal:global-node-modules"
-  | "local:fallback"
-  | "none";
-
-let computeEditsDiffLoadPromise: Promise<
-  ComputeEditsDiffFn | undefined
-> | null = null;
-let computeEditsDiffSource: DiffEngineSource = "none";
-
-function loadComputeEditsDiffOnce() {
-  if (computeEditsDiffLoadPromise) return computeEditsDiffLoadPromise;
-
-  computeEditsDiffLoadPromise = (async () => {
-    const pkgName = "@mariozechner/pi-coding-agent";
-
-    const tryLoadFromAbsolutePath = async (
-      editDiffPath: string,
-      source: DiffEngineSource,
-    ) => {
-      if (!fs.existsSync(editDiffPath)) return undefined;
-      const mod = await import(pathToFileURL(editDiffPath).href);
-      const fn = mod?.computeEditsDiff ?? mod?.default?.computeEditsDiff;
-      if (typeof fn !== "function") return undefined;
-      computeEditsDiffSource = source;
-      return fn as ComputeEditsDiffFn;
-    };
-
-    // 1) Local/project search: walk upwards from cwd and extension dir.
-    try {
-      const extensionDir = nodePath.dirname(fileURLToPath(import.meta.url));
-      const tryDirs = [process.cwd(), extensionDir];
-      for (const start of tryDirs) {
-        let dir = nodePath.resolve(start);
-        while (true) {
-          const editDiffPath = nodePath.join(
-            dir,
-            "node_modules",
-            pkgName,
-            "dist/core/tools/edit-diff.js",
-          );
-          const fn = await tryLoadFromAbsolutePath(
-            editDiffPath,
-            "internal:fs-search",
-          );
-          if (fn) return fn;
-
-          const parent = nodePath.dirname(dir);
-          if (parent === dir) break;
-          dir = parent;
-        }
-      }
-    } catch {
-      // ignore and continue
-    }
-
-    // 2) Global npm-like locations (covers global pi installations).
-    try {
-      const globalCandidates = [
-        nodePath.resolve(process.execPath, "..", "..", "lib", "node_modules"),
-        nodePath.resolve(process.execPath, "..", "..", "node_modules"),
-        "/usr/local/lib/node_modules",
-        "/opt/homebrew/lib/node_modules",
-      ];
-      for (const globalRoot of globalCandidates) {
-        const editDiffPath = nodePath.join(
-          globalRoot,
-          pkgName,
-          "dist/core/tools/edit-diff.js",
-        );
-        const fn = await tryLoadFromAbsolutePath(
-          editDiffPath,
-          "internal:global-node-modules",
-        );
-        if (fn) return fn;
-      }
-    } catch {
-      // ignore and fall back to local implementation
-    }
-
-    computeEditsDiffSource = "local:fallback";
-    return undefined;
-  })();
-
-  return computeEditsDiffLoadPromise;
-}
-
 export default function (pi: ExtensionAPI) {
   // Edit diff preview is shown in a dedicated custom dialog (lazy, on demand).
 
@@ -138,8 +42,8 @@ export default function (pi: ExtensionAPI) {
     if (warmupStarted) return;
     warmupStarted = true;
     // Warm up internal diff loader early so the first edit confirmation has less latency.
-    const fn = await loadComputeEditsDiffOnce();
-    if (!fn && !internalDiffFallbackNotified) {
+    const loaded = await loadComputeEditsDiffOnce();
+    if (!loaded.fn && !internalDiffFallbackNotified) {
       internalDiffFallbackNotified = true;
       try {
         if (ctx?.hasUI && ctx?.ui?.notify) {
@@ -174,13 +78,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       try {
-        const computeEditsDiffFn = await loadComputeEditsDiffOnce();
+        const loaded = await loadComputeEditsDiffOnce();
         const cwd = ctx.cwd ?? process.cwd();
-        const engine = computeEditsDiffFn
-          ? computeEditsDiffSource
-          : "local:fallback";
-        const diffRes = computeEditsDiffFn
-          ? await computeEditsDiffFn(path, edits, cwd)
+        const engine = loaded.source;
+        const diffRes = loaded.fn
+          ? await loaded.fn(path, edits, cwd)
           : await computeEditsDiffLocalFallback(path, edits, cwd);
 
         if (!("error" in diffRes) && diffRes?.diff) {
