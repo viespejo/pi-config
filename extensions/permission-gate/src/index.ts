@@ -606,6 +606,98 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
+  async function runEditApprovalLoop(
+    ctx: any,
+    input: any,
+    initialPromptMsg: string,
+  ) {
+    const { path, edits } = extractEditInput(input);
+    const editOptions = ["Yes", "View diff", "Yes, always this session", "No"];
+
+    let promptMsg = initialPromptMsg;
+    while (true) {
+      const choice = await ctx.ui.select(promptMsg, editOptions);
+      if (choice !== "View diff") return choice;
+
+      if (!path || !edits) {
+        promptMsg = `Tool: edit\n\nPreview unavailable: missing path/edits input.\n\nAllow execution?`;
+        continue;
+      }
+
+      try {
+        const computeEditsDiffFn = await loadComputeEditsDiffOnce();
+        const cwd = ctx.cwd ?? process.cwd();
+        const engine = computeEditsDiffFn
+          ? computeEditsDiffSource
+          : "local:fallback";
+        const diffRes = computeEditsDiffFn
+          ? await computeEditsDiffFn(path, edits, cwd)
+          : await computeEditsDiffLocalFallback(path, edits, cwd);
+
+        if (!("error" in diffRes) && diffRes?.diff) {
+          const rendered = renderDiff(diffRes.diff, { filePath: path });
+          await showDiffInCustomDialog(ctx, path, rendered);
+          promptMsg = `Tool: edit\n\nDiff viewed (${engine}). Allow execution?`;
+        } else if ("error" in diffRes) {
+          const errMsg = String(diffRes.error ?? "Preview unavailable");
+          const meta = summarizeEditsForPrompt(edits, path);
+          promptMsg = `Tool: edit\n\nPreview unavailable (${engine}): ${errMsg}\n\n${meta}\n\nAllow execution?`;
+        }
+      } catch {
+        promptMsg = `Tool: edit\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
+      }
+    }
+  }
+
+  async function runWriteApprovalLoop(
+    ctx: any,
+    input: any,
+    initialPromptMsg: string,
+  ) {
+    const { path, content } = extractWriteInput(input);
+    const writeOptions = ["Yes", "View diff", "Yes, always this session", "No"];
+
+    let promptMsg = initialPromptMsg;
+    while (true) {
+      const choice = await ctx.ui.select(promptMsg, writeOptions);
+      if (choice !== "View diff") return choice;
+
+      if (!path || typeof content !== "string") {
+        const reason = !path ? "missing path input" : "missing content input";
+        const meta = summarizeWriteForPrompt({ path, content });
+        promptMsg = `Tool: write\n\nPreview unavailable: ${reason}.\n\n${meta}\n\nAllow execution?`;
+        continue;
+      }
+
+      try {
+        const cwd = ctx.cwd ?? process.cwd();
+        const diffRes = await computeWriteDiffPreviewLocal(path, content, cwd);
+
+        if (!("error" in diffRes) && diffRes.diff) {
+          const rendered = renderDiff(diffRes.diff, { filePath: path });
+          await showDiffInCustomDialog(ctx, path, rendered);
+          const mode = diffRes.existedBeforeWrite ? "overwrite" : "create";
+          promptMsg = `Tool: write\n\nDiff viewed (write:${mode}). Allow execution?`;
+        } else {
+          const errMsg = "error" in diffRes ? diffRes.error : "Preview unavailable";
+          const meta = summarizeWriteForPrompt({
+            path,
+            content,
+            existedBeforeWrite:
+              "existedBeforeWrite" in diffRes
+                ? diffRes.existedBeforeWrite
+                : undefined,
+            oldChars: "oldChars" in diffRes ? diffRes.oldChars : undefined,
+            newChars: "newChars" in diffRes ? diffRes.newChars : undefined,
+          });
+          promptMsg = `Tool: write\n\nPreview unavailable (write:local): ${errMsg}\n\n${meta}\n\nAllow execution?`;
+        }
+      } catch {
+        promptMsg = `Tool: write\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
+      }
+    }
+  }
+
   pi.on("tool_call", async (event, ctx) => {
     const tool = event.toolName ?? "tool";
 
@@ -625,102 +717,12 @@ export default function (pi: ExtensionAPI) {
     try {
       const defaultOptions = defaultOptionsForTool(tool);
 
-      let promptMsg = `Tool: ${tool}\n\nAllow execution?`;
+      const promptMsg = `Tool: ${tool}\n\nAllow execution?`;
 
       if (tool === "edit") {
-        const inp = event.input as any;
-        const { path, edits } = extractEditInput(inp);
-
-        const editOptions = [
-          "Yes",
-          "View diff",
-          "Yes, always this session",
-          "No",
-        ];
-
-        while (true) {
-          choice = await ctx.ui.select(promptMsg, editOptions);
-          if (choice !== "View diff") break;
-
-          if (!path || !edits) {
-            promptMsg = `Tool: ${tool}\n\nPreview unavailable: missing path/edits input.\n\nAllow execution?`;
-            continue;
-          }
-
-          try {
-            const computeEditsDiffFn = await loadComputeEditsDiffOnce();
-            const cwd = ctx.cwd ?? process.cwd();
-            const engine = computeEditsDiffFn
-              ? computeEditsDiffSource
-              : "local:fallback";
-            const diffRes = computeEditsDiffFn
-              ? await computeEditsDiffFn(path, edits, cwd)
-              : await computeEditsDiffLocalFallback(path, edits, cwd);
-
-            if (!("error" in diffRes) && diffRes?.diff) {
-              const rendered = renderDiff(diffRes.diff, { filePath: path });
-              await showDiffInCustomDialog(ctx, path, rendered);
-              promptMsg = `Tool: ${tool}\n\nDiff viewed (${engine}). Allow execution?`;
-            } else if ("error" in diffRes) {
-              const errMsg = String(diffRes.error ?? "Preview unavailable");
-              const meta = summarizeEditsForPrompt(edits, path);
-              promptMsg = `Tool: ${tool}\n\nPreview unavailable (${engine}): ${errMsg}\n\n${meta}\n\nAllow execution?`;
-            }
-          } catch {
-            promptMsg = `Tool: ${tool}\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
-          }
-        }
+        choice = await runEditApprovalLoop(ctx, event.input, promptMsg);
       } else if (tool === "write") {
-        const inp = event.input as any;
-        const { path, content } = extractWriteInput(inp);
-
-        const writeOptions = [
-          "Yes",
-          "View diff",
-          "Yes, always this session",
-          "No",
-        ];
-
-        while (true) {
-          choice = await ctx.ui.select(promptMsg, writeOptions);
-          if (choice !== "View diff") break;
-
-          if (!path || typeof content !== "string") {
-            const reason = !path
-              ? "missing path input"
-              : "missing content input";
-            const meta = summarizeWriteForPrompt({ path, content });
-            promptMsg = `Tool: ${tool}\n\nPreview unavailable: ${reason}.\n\n${meta}\n\nAllow execution?`;
-            continue;
-          }
-
-          try {
-            const cwd = ctx.cwd ?? process.cwd();
-            const diffRes = await computeWriteDiffPreviewLocal(path, content, cwd);
-
-            if (!("error" in diffRes) && diffRes.diff) {
-              const rendered = renderDiff(diffRes.diff, { filePath: path });
-              await showDiffInCustomDialog(ctx, path, rendered);
-              const mode = diffRes.existedBeforeWrite ? "overwrite" : "create";
-              promptMsg = `Tool: ${tool}\n\nDiff viewed (write:${mode}). Allow execution?`;
-            } else {
-              const errMsg = "error" in diffRes ? diffRes.error : "Preview unavailable";
-              const meta = summarizeWriteForPrompt({
-                path,
-                content,
-                existedBeforeWrite:
-                  "existedBeforeWrite" in diffRes
-                    ? diffRes.existedBeforeWrite
-                    : undefined,
-                oldChars: "oldChars" in diffRes ? diffRes.oldChars : undefined,
-                newChars: "newChars" in diffRes ? diffRes.newChars : undefined,
-              });
-              promptMsg = `Tool: ${tool}\n\nPreview unavailable (write:local): ${errMsg}\n\n${meta}\n\nAllow execution?`;
-            }
-          } catch {
-            promptMsg = `Tool: ${tool}\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
-          }
-        }
+        choice = await runWriteApprovalLoop(ctx, event.input, promptMsg);
       } else {
         choice = await ctx.ui.select(promptMsg, defaultOptions);
       }
