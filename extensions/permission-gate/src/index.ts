@@ -33,7 +33,6 @@ type DiffEngineSource =
   | "local:fallback"
   | "none";
 
-
 let computeEditsDiffLoadPromise: Promise<
   ComputeEditsDiffFn | undefined
 > | null = null;
@@ -118,6 +117,44 @@ function loadComputeEditsDiffOnce() {
 
 function normalizeToLF(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function stripBom(text: string) {
+  return text.startsWith("\uFEFF") ? text.slice(1) : text;
+}
+
+function generateSingleSidedDiffStringLocal(
+  content: string,
+  kind: "added" | "removed",
+) {
+  const rows = content.split("\n");
+  if (rows[rows.length - 1] === "") rows.pop();
+
+  if (rows.length === 0) {
+    return { diff: "", firstChangedLine: 1 };
+  }
+
+  const prefix = kind === "added" ? "+" : "-";
+  const lineNumWidth = String(rows.length).length;
+  const out = rows.map(
+    (line, i) => `${prefix}${String(i + 1).padStart(lineNumWidth, " ")} ${line}`,
+  );
+
+  return { diff: out.join("\n"), firstChangedLine: 1 };
+}
+
+function generateDiffStringOptimized(
+  oldContent: string,
+  newContent: string,
+  contextLines = 4,
+) {
+  if (!oldContent.length && newContent.length) {
+    return generateSingleSidedDiffStringLocal(newContent, "added");
+  }
+  if (oldContent.length && !newContent.length) {
+    return generateSingleSidedDiffStringLocal(oldContent, "removed");
+  }
+  return generateDiffStringLocal(oldContent, newContent, contextLines);
 }
 
 function generateDiffStringLocal(
@@ -259,10 +296,7 @@ async function computeEditsDiffLocalFallback(
     }
 
     const rawContent = await fs.promises.readFile(absolutePath, "utf-8");
-    const content = rawContent.startsWith("\uFEFF")
-      ? rawContent.slice(1)
-      : rawContent;
-    const base = normalizeToLF(content);
+    const base = normalizeToLF(stripBom(rawContent));
 
     const normalizedEdits = edits.map((e, i) => {
       const oldText =
@@ -321,9 +355,117 @@ async function computeEditsDiffLocalFallback(
   }
 }
 
+export type WritePreviewResult =
+  | {
+      diff: string;
+      firstChangedLine?: number;
+      existedBeforeWrite: boolean;
+      oldChars: number;
+      newChars: number;
+    }
+  | {
+      error: string;
+      existedBeforeWrite?: boolean;
+      oldChars?: number;
+      newChars?: number;
+    };
+
+export async function computeWriteDiffPreviewLocal(
+  path: string,
+  content: string,
+  cwd: string,
+): Promise<WritePreviewResult> {
+  try {
+    if (!path || typeof path !== "string") {
+      return { error: "Missing path" };
+    }
+    if (typeof content !== "string") {
+      return { error: "Missing write content" };
+    }
+
+    const absolutePath = nodePath.isAbsolute(path)
+      ? path
+      : nodePath.resolve(cwd, path);
+
+    let previousRaw = "";
+    let existedBeforeWrite = true;
+    try {
+      previousRaw = await fs.promises.readFile(absolutePath, "utf-8");
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        existedBeforeWrite = false;
+        previousRaw = "";
+      } else {
+        return {
+          error: `Could not read existing file: ${String(err?.message ?? err)}`,
+        };
+      }
+    }
+
+    const oldContent = normalizeToLF(stripBom(previousRaw));
+    const newContent = normalizeToLF(stripBom(content));
+
+    if (oldContent === newContent) {
+      return {
+        error: `No changes made to ${path}.`,
+        existedBeforeWrite,
+        oldChars: oldContent.length,
+        newChars: newContent.length,
+      };
+    }
+
+    const diffRes = generateDiffStringOptimized(oldContent, newContent);
+    return {
+      ...diffRes,
+      existedBeforeWrite,
+      oldChars: oldContent.length,
+      newChars: newContent.length,
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function summarizeWriteForPrompt(params: {
+  path?: string;
+  content?: string;
+  existedBeforeWrite?: boolean;
+  oldChars?: number;
+  newChars?: number;
+  extraNote?: string;
+}) {
+  const { path, content, existedBeforeWrite, oldChars, newChars, extraNote } =
+    params;
+
+  const targetState =
+    existedBeforeWrite === undefined
+      ? "unknown"
+      : existedBeforeWrite
+        ? "overwrite existing file"
+        : "create new file";
+
+  const nextChars =
+    typeof newChars === "number"
+      ? newChars
+      : typeof content === "string"
+        ? normalizeToLF(stripBom(content)).length
+        : undefined;
+
+  const summaryLines = [
+    path ? `Path: ${String(path)}` : undefined,
+    `Write mode: ${targetState}`,
+    typeof oldChars === "number" ? `Current file chars: ${oldChars}` : undefined,
+    typeof nextChars === "number" ? `New content chars: ${nextChars}` : undefined,
+    extraNote,
+    `Note: detailed preview unavailable. Showing metadata only.`,
+  ].filter(Boolean) as string[];
+
+  return summaryLines.join("\n");
+}
+
 export default function (pi: ExtensionAPI) {
   // Config: tools that should bypass the gate. Empty by default so all tools are gated.
-  const ALWAYS_ALLOW_TOOLS = new Set<string>();
+  const ALWAYS_ALLOW_TOOLS = new Set<string>(["read", "ls", "grep", "find"]);
 
   // Edit diff preview is shown in a dedicated custom dialog (lazy, on demand).
 
@@ -723,6 +865,68 @@ export default function (pi: ExtensionAPI) {
               const errMsg = String(diffRes.error ?? "Preview unavailable");
               const meta = summarizeEditsForPrompt(edits, path);
               promptMsg = `Tool: ${tool}\n\nPreview unavailable (${engine}): ${errMsg}\n\n${meta}\n\nAllow execution?`;
+            }
+          } catch {
+            promptMsg = `Tool: ${tool}\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
+          }
+        }
+      } else if (tool === "write") {
+        const inp = event.input as any;
+        const path =
+          typeof inp?.path === "string"
+            ? inp.path
+            : typeof inp?.file_path === "string"
+              ? inp.file_path
+              : undefined;
+        const content =
+          typeof inp?.content === "string"
+            ? inp.content
+            : typeof inp?.text === "string"
+              ? inp.text
+              : undefined;
+
+        const writeOptions = [
+          "Yes",
+          "View diff",
+          "Yes, always this session",
+          "No",
+        ];
+
+        while (true) {
+          choice = await ctx.ui.select(promptMsg, writeOptions);
+          if (choice !== "View diff") break;
+
+          if (!path || typeof content !== "string") {
+            const reason = !path
+              ? "missing path input"
+              : "missing content input";
+            const meta = summarizeWriteForPrompt({ path, content });
+            promptMsg = `Tool: ${tool}\n\nPreview unavailable: ${reason}.\n\n${meta}\n\nAllow execution?`;
+            continue;
+          }
+
+          try {
+            const cwd = ctx.cwd ?? process.cwd();
+            const diffRes = await computeWriteDiffPreviewLocal(path, content, cwd);
+
+            if (!("error" in diffRes) && diffRes.diff) {
+              const rendered = renderDiff(diffRes.diff, { filePath: path });
+              await showDiffInCustomDialog(ctx, path, rendered);
+              const mode = diffRes.existedBeforeWrite ? "overwrite" : "create";
+              promptMsg = `Tool: ${tool}\n\nDiff viewed (write:${mode}). Allow execution?`;
+            } else {
+              const errMsg = "error" in diffRes ? diffRes.error : "Preview unavailable";
+              const meta = summarizeWriteForPrompt({
+                path,
+                content,
+                existedBeforeWrite:
+                  "existedBeforeWrite" in diffRes
+                    ? diffRes.existedBeforeWrite
+                    : undefined,
+                oldChars: "oldChars" in diffRes ? diffRes.oldChars : undefined,
+                newChars: "newChars" in diffRes ? diffRes.newChars : undefined,
+              });
+              promptMsg = `Tool: ${tool}\n\nPreview unavailable (write:local): ${errMsg}\n\n${meta}\n\nAllow execution?`;
             }
           } catch {
             promptMsg = `Tool: ${tool}\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;

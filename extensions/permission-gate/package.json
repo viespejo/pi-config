@@ -1,5 +1,8 @@
 {
   "name": "permission-gate-extension",
+  "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts"
+  },
   "dependencies": {
     "diff": "^8.0.2"
   },
