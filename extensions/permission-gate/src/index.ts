@@ -42,6 +42,51 @@ export type { WritePreviewResult } from "./write-preview.ts";
 // for confirmation before allowing execution. Keeps an in-memory session
 // allow-list for the current agent process ("Always allow this session").
 
+type SelectFn = (
+  prompt: string,
+  options: string[],
+  opts?: unknown,
+) => Promise<string | undefined>;
+type InputFn = (label: string, placeholder?: string) => Promise<string | undefined>;
+type NotifyFn = (message: string, level?: "info" | "warning" | "error") => void;
+
+type GateUI = {
+  select?: SelectFn;
+  input?: InputFn;
+  notify?: NotifyFn;
+};
+
+type GateCtx = {
+  hasUI?: boolean;
+  ui?: GateUI;
+  cwd?: string;
+};
+
+type GateCtxWithSelectUI = GateCtx & {
+  hasUI: true;
+  ui: GateUI & { select: SelectFn };
+};
+
+function hasSelectUI(ctx: GateCtx): ctx is GateCtxWithSelectUI {
+  return Boolean(ctx.hasUI && ctx.ui && typeof ctx.ui.select === "function");
+}
+
+async function askOptionalDenyReason(ctx: GateCtxWithSelectUI) {
+  try {
+    if (typeof ctx.ui.input === "function") {
+      return await ctx.ui.input(DENY_REASON_LABEL, DENY_REASON_PLACEHOLDER);
+    }
+  } catch {
+    // ignore input errors
+  }
+
+  return undefined;
+}
+
+function blockedByUserReason(userReason?: string) {
+  return userReason ? `Blocked by user. Reason: ${userReason}` : "Blocked by user";
+}
+
 export default function (pi: ExtensionAPI) {
   // Edit diff preview is shown in a dedicated custom dialog (lazy, on demand).
 
@@ -58,9 +103,10 @@ export default function (pi: ExtensionAPI) {
     const loaded = await loadComputeEditsDiffOnce();
     if (!loaded.fn && !internalDiffFallbackNotified) {
       internalDiffFallbackNotified = true;
+      const gateCtx = ctx as unknown as GateCtx;
       try {
-        if (ctx?.hasUI && ctx?.ui?.notify) {
-          ctx.ui.notify(
+        if (gateCtx?.hasUI && gateCtx?.ui?.notify) {
+          gateCtx.ui.notify(
             "permission-gate: using local diff fallback (internal edit-diff not found).",
             "warning",
           );
@@ -73,12 +119,12 @@ export default function (pi: ExtensionAPI) {
 
 
   async function runEditApprovalLoop(
-    ctx: any,
-    input: any,
+    ctx: GateCtxWithSelectUI,
+    input: unknown,
     initialPromptMsg: string,
   ) {
     const { path, edits } = extractEditInput(input);
-    const editOptions = DIFF_APPROVAL_OPTIONS;
+    const editOptions = [...DIFF_APPROVAL_OPTIONS];
 
     let promptMsg = initialPromptMsg;
     while (true) {
@@ -122,12 +168,12 @@ export default function (pi: ExtensionAPI) {
   }
 
   async function runWriteApprovalLoop(
-    ctx: any,
-    input: any,
+    ctx: GateCtxWithSelectUI,
+    input: unknown,
     initialPromptMsg: string,
   ) {
     const { path, content } = extractWriteInput(input);
-    const writeOptions = DIFF_APPROVAL_OPTIONS;
+    const writeOptions = [...DIFF_APPROVAL_OPTIONS];
 
     let promptMsg = initialPromptMsg;
     while (true) {
@@ -176,13 +222,15 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("tool_call", async (event, ctx) => {
-    const tool = event.toolName ?? "tool";
+    const gateCtx = ctx as unknown as GateCtx;
+    const typedEvent = event as { toolName?: string; input?: unknown };
+    const tool = typedEvent.toolName ?? "tool";
 
     if (isAlwaysAllowedTool(tool)) return;
     if (shouldBypassPromptForSession(tool, sessionAllow)) return; // already allowed for this session
 
     // If no UI is available, be conservative and block the call
-    if (!ctx.hasUI || !ctx.ui || typeof ctx.ui.select !== "function") {
+    if (!hasSelectUI(gateCtx)) {
       return {
         block: true,
         reason: "Blocked: no UI available for confirmation",
@@ -197,11 +245,11 @@ export default function (pi: ExtensionAPI) {
       const promptMsg = allowExecutionPrompt(tool);
 
       if (tool === "edit") {
-        choice = await runEditApprovalLoop(ctx, event.input, promptMsg);
+        choice = await runEditApprovalLoop(gateCtx, typedEvent.input, promptMsg);
       } else if (tool === "write") {
-        choice = await runWriteApprovalLoop(ctx, event.input, promptMsg);
+        choice = await runWriteApprovalLoop(gateCtx, typedEvent.input, promptMsg);
       } else {
-        choice = await ctx.ui.select(promptMsg, defaultOptions);
+        choice = await gateCtx.ui.select(promptMsg, defaultOptions);
       }
     } catch (err) {
       // If UI threw for some reason, be conservative and block
@@ -219,22 +267,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (choice !== APPROVAL_OPTION_YES) {
-      // Ask optional reason for blocking to include in the returned reason
-      let userReason: string | undefined;
-      try {
-        userReason = await ctx.ui.input(
-          DENY_REASON_LABEL,
-          DENY_REASON_PLACEHOLDER,
-        );
-      } catch {
-        // ignore input errors
-      }
-
+      const userReason = await askOptionalDenyReason(gateCtx);
       return {
         block: true,
-        reason: userReason
-          ? `Blocked by user. Reason: ${userReason}`
-          : "Blocked by user",
+        reason: blockedByUserReason(userReason),
       };
     }
 
