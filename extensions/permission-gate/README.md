@@ -4,6 +4,21 @@ A conservative approval layer for Pi tool calls.
 
 It prompts before potentially dangerous tool executions, supports diff previews for file mutations, and keeps a small in-memory allow-list for the current session.
 
+## TL;DR (30 seconds)
+
+- Read-only tools (`read`, `ls`, `grep`, `find`) are auto-allowed.
+- Other tools require explicit approval in the UI.
+- `edit` and `write` support **View diff** before approving.
+- If UI is unavailable, calls are blocked conservatively.
+- `Yes, always this session` works for non-`bash` tools.
+
+Quick test run:
+
+```bash
+cd extensions/permission-gate
+npm test
+```
+
 ---
 
 ## What this extension does
