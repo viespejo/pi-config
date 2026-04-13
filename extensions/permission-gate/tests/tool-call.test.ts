@@ -18,11 +18,15 @@ type Handler = (event: any, ctx: any) => any | Promise<any>;
 
 function setupExtension() {
   const handlers = new Map<string, Handler[]>();
+  const userMessages: Array<{ message: string; options?: unknown }> = [];
   const pi = {
     on(event: string, fn: Handler) {
       const arr = handlers.get(event) ?? [];
       arr.push(fn);
       handlers.set(event, arr);
+    },
+    sendUserMessage(message: string, options?: unknown) {
+      userMessages.push({ message, options });
     },
   } as any;
 
@@ -37,7 +41,12 @@ function setupExtension() {
     return last;
   }
 
-  return { emit };
+  return {
+    emit,
+    get userMessages() {
+      return userMessages;
+    },
+  };
 }
 
 function makeUI(params: {
@@ -302,6 +311,74 @@ describe("permission-gate tool_call", () => {
       APPROVAL_OPTION_YES_SESSION,
       APPROVAL_OPTION_NO,
     ]);
+  });
+
+  it("applies reviewed version and blocks original write call", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-apply-flow-"));
+    const ui = makeUI({
+      selectAnswers: ["Review in Neovim", "Apply reviewed version"],
+    });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "file.txt", content: "hello\n" },
+      },
+      {
+        hasUI: true,
+        ui: ui.ui,
+        cwd: tmp,
+        neovimReviewAdapters: {
+          spawnNvim: async (args: string[]) => {
+            await fs.writeFile(args[2]!, "hello reviewed\n", "utf-8");
+            return { ok: true };
+          },
+        },
+      },
+    );
+
+    const persisted = await fs.readFile(nodePath.join(tmp, "file.txt"), "utf-8");
+    assert.equal(persisted, "hello reviewed\n");
+    assert.equal(res?.block, true);
+    assert.match(String(res?.reason), /reviewed version was applied manually/i);
+    assert.equal(gate.userMessages.length, 0);
+  });
+
+  it("sends steer message when applied reviewed version contains ai: comments", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-apply-ai-flow-"));
+    const ui = makeUI({
+      selectAnswers: ["Review in Neovim", "Apply reviewed version"],
+    });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "file.txt", content: "hello\n" },
+      },
+      {
+        hasUI: true,
+        ui: ui.ui,
+        cwd: tmp,
+        neovimReviewAdapters: {
+          spawnNvim: async (args: string[]) => {
+            await fs.writeFile(args[2]!, "hello\n// ai: rewrite this block\n", "utf-8");
+            return { ok: true };
+          },
+        },
+      },
+    );
+
+    const persisted = await fs.readFile(nodePath.join(tmp, "file.txt"), "utf-8");
+    assert.equal(persisted, "hello\n// ai: rewrite this block\n");
+    assert.equal(res?.block, true);
+    assert.match(String(res?.reason), /ai-guided reviewed version/i);
+    assert.equal(gate.userMessages.length, 1);
+    assert.match(gate.userMessages[0]!.message, /Re-read the file, follow every ai: instruction/i);
+    assert.deepEqual(gate.userMessages[0]!.options, { deliverAs: "steer" });
   });
 
   it("keeps approval flow when neovim is unavailable", async () => {

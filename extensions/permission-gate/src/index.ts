@@ -153,13 +153,39 @@ async function buildProposedEditContent(
   return proposed;
 }
 
-async function applyReviewedVersion(
-  cwd: string,
-  filePath: string,
-  reviewedContent: string,
-) {
-  const absolutePath = nodePath.resolve(cwd, filePath);
+function hasAiComments(content: string) {
+  return /\bai:/.test(content);
+}
+
+async function applyReviewedVersion(params: {
+  reviewedContent: string;
+  proposedContent: string;
+  absolutePath: string;
+  filePath: string;
+  pi: ExtensionAPI;
+}) {
+  const { reviewedContent, proposedContent, absolutePath, filePath, pi } = params;
+
+  if (reviewedContent === proposedContent) {
+    return undefined;
+  }
+
   await fs.writeFile(absolutePath, reviewedContent, "utf-8");
+
+  if (hasAiComments(reviewedContent)) {
+    pi.sendUserMessage(
+      `I reviewed and updated \`${filePath}\` in Neovim and left \`ai:\` comments. ` +
+        "Re-read the file, follow every ai: instruction, and remove all ai: comment lines.",
+      { deliverAs: "steer" },
+    );
+
+    return {
+      block: true,
+      reason:
+        "Blocked: ai-guided reviewed version was applied manually. Re-read the file, follow ai: instructions, and remove ai: comment lines.",
+    } as const;
+  }
+
   return {
     block: true,
     reason:
@@ -419,23 +445,39 @@ export default function (pi: ExtensionAPI) {
       if (tool === "edit") {
         const editResult = await runEditApprovalLoop(gateCtx, typedEvent.input, promptMsg);
         if (editResult.type === "apply-reviewed") {
-          return await applyReviewedVersion(
+          const absolutePath = nodePath.resolve(
             gateCtx.cwd ?? process.cwd(),
             editResult.filePath,
-            editResult.reviewedContent,
           );
+          const applied = await applyReviewedVersion({
+            reviewedContent: editResult.reviewedContent,
+            proposedContent: editResult.proposedContent,
+            absolutePath,
+            filePath: editResult.filePath,
+            pi,
+          });
+          if (applied) return applied;
+        } else {
+          choice = editResult.choice;
         }
-        choice = editResult.choice;
       } else if (tool === "write") {
         const writeResult = await runWriteApprovalLoop(gateCtx, typedEvent.input, promptMsg);
         if (writeResult.type === "apply-reviewed") {
-          return await applyReviewedVersion(
+          const absolutePath = nodePath.resolve(
             gateCtx.cwd ?? process.cwd(),
             writeResult.filePath,
-            writeResult.reviewedContent,
           );
+          const applied = await applyReviewedVersion({
+            reviewedContent: writeResult.reviewedContent,
+            proposedContent: writeResult.proposedContent,
+            absolutePath,
+            filePath: writeResult.filePath,
+            pi,
+          });
+          if (applied) return applied;
+        } else {
+          choice = writeResult.choice;
         }
-        choice = writeResult.choice;
       } else {
         choice = await gateCtx.ui.select(promptMsg, defaultOptions);
       }

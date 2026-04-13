@@ -8,7 +8,7 @@ It prompts before potentially dangerous tool executions, supports diff previews 
 
 - Read-only tools (`read`, `ls`, `grep`, `find`) are auto-allowed.
 - Other tools require explicit approval in the UI.
-- `edit` and `write` support **View diff** before approving.
+- `edit` and `write` support **View diff** and **Review in Neovim** before approving.
 - If UI is unavailable, calls are blocked conservatively.
 - `Yes, always this session` works for non-`bash` tools.
 
@@ -43,7 +43,7 @@ For `edit` and `write`, the prompt includes a **View diff** option.
 
 - For most tools: `Yes`, `Yes, always this session`, `No`
 - For `bash`: `Yes`, `No` (no session persistence)
-- For `edit` / `write`: `Yes`, `View diff`, `Yes, always this session`, `No`
+- For `edit` / `write`: `Yes`, `View diff`, `Review in Neovim`, `Yes, always this session`, `No`
 
 ### Session allow-list
 
@@ -57,6 +57,29 @@ If denied, the extension optionally asks for a reason and returns:
 - or `Blocked by user. Reason: <text>`
 
 ---
+
+## Review in Neovim behavior (`edit` / `write`)
+
+When the user selects **Review in Neovim**, the extension opens a standalone diff review (`nvim -d`) between current and proposed content.
+
+- If Neovim is unavailable or fails to launch, the flow stays in the same approval loop and shows a contextual **Review in Neovim unavailable** prompt.
+- If Neovim closes with **no content changes**, the extension returns directly to the original approval menu (no extra intermediate prompt).
+- If Neovim closes with **content changes**, the extension shows an intermediate decision:
+  - `Apply reviewed version`
+  - `Back to approval menu`
+
+### Changed-content decisions
+
+- **Apply reviewed version**
+  - Writes the reviewed content to the target file immediately.
+  - Blocks the original tool call so the agent does not overwrite the reviewed content.
+  - If the reviewed content contains `ai:` comments, sends a `deliverAs: "steer"` message instructing the agent to:
+    1) re-read the file,
+    2) follow every `ai:` instruction,
+    3) remove all `ai:` comment lines.
+- **Back to approval menu**
+  - Discards reviewed output from that attempt.
+  - Returns to the original approval menu loop without writing reviewed content.
 
 ## Diff preview behavior
 
