@@ -20,6 +20,7 @@ import {
   shouldBypassPromptForSession,
   supportsSessionAllow,
 } from "./gate-policy.ts";
+import { extractEditInput, extractWriteInput } from "./tool-input.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -688,13 +689,7 @@ export default function (pi: ExtensionAPI) {
 
       if (tool === "edit") {
         const inp = event.input as any;
-        const path =
-          typeof inp?.path === "string"
-            ? inp.path
-            : typeof inp?.file_path === "string"
-              ? inp.file_path
-              : undefined;
-        const edits = Array.isArray(inp?.edits) ? inp.edits : undefined;
+        const { path, edits } = extractEditInput(inp);
 
         const editOptions = [
           "Yes",
@@ -737,18 +732,7 @@ export default function (pi: ExtensionAPI) {
         }
       } else if (tool === "write") {
         const inp = event.input as any;
-        const path =
-          typeof inp?.path === "string"
-            ? inp.path
-            : typeof inp?.file_path === "string"
-              ? inp.file_path
-              : undefined;
-        const content =
-          typeof inp?.content === "string"
-            ? inp.content
-            : typeof inp?.text === "string"
-              ? inp.text
-              : undefined;
+        const { path, content } = extractWriteInput(inp);
 
         const writeOptions = [
           "Yes",
