@@ -4,6 +4,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
 import permissionGateExtension from "../src/index.ts";
+import {
+  APPROVAL_OPTION_NO,
+  APPROVAL_OPTION_REVIEW_NVIM,
+  APPROVAL_OPTION_VIEW_DIFF,
+  APPROVAL_OPTION_YES,
+  APPROVAL_OPTION_YES_SESSION,
+} from "../src/prompt-messages.ts";
 
 type Handler = (event: any, ctx: any) => any | Promise<any>;
 
@@ -181,6 +188,13 @@ describe("permission-gate tool_call", () => {
 
     assert.equal(res, undefined);
     assert.equal(ui.selectCalls.length, 2);
+    assert.deepEqual(ui.selectCalls[0]!.options, [
+      APPROVAL_OPTION_YES,
+      APPROVAL_OPTION_VIEW_DIFF,
+      APPROVAL_OPTION_REVIEW_NVIM,
+      APPROVAL_OPTION_YES_SESSION,
+      APPROVAL_OPTION_NO,
+    ]);
     assert.match(
       ui.prompts[1]!,
       /(Diff viewed \(write:create\)|Preview unavailable \(write:local\)|Preview unavailable due to an unexpected error)/,
@@ -208,6 +222,13 @@ describe("permission-gate tool_call", () => {
 
     assert.equal(res, undefined);
     assert.equal(ui.selectCalls.length, 2);
+    assert.deepEqual(ui.selectCalls[0]!.options, [
+      APPROVAL_OPTION_YES,
+      APPROVAL_OPTION_VIEW_DIFF,
+      APPROVAL_OPTION_REVIEW_NVIM,
+      APPROVAL_OPTION_YES_SESSION,
+      APPROVAL_OPTION_NO,
+    ]);
     assert.match(ui.prompts[1]!, /(Diff viewed|Preview unavailable)/);
   });
 

@@ -17,6 +17,7 @@ import { summarizeEditsForPrompt } from "./edit-preview.ts";
 import { extractEditInput, extractWriteInput } from "./tool-input.ts";
 import {
   allowExecutionPrompt,
+  APPROVAL_OPTION_REVIEW_NVIM,
   APPROVAL_OPTION_VIEW_DIFF,
   APPROVAL_OPTION_YES,
   APPROVAL_OPTION_YES_SESSION,
@@ -24,6 +25,7 @@ import {
   DENY_REASON_PLACEHOLDER,
   DIFF_APPROVAL_OPTIONS,
   diffViewedPrompt,
+  neovimUnavailablePrompt,
   previewUnavailablePrompt,
   previewUnavailableWithSourcePrompt,
   unexpectedPreviewErrorPrompt,
@@ -129,6 +131,13 @@ export default function (pi: ExtensionAPI) {
     let promptMsg = initialPromptMsg;
     while (true) {
       const choice = await ctx.ui.select(promptMsg, editOptions);
+      if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
+        promptMsg = neovimUnavailablePrompt(
+          "edit",
+          "standalone review is not available yet.",
+        );
+        continue;
+      }
       if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
 
       if (!path || !edits) {
@@ -178,6 +187,13 @@ export default function (pi: ExtensionAPI) {
     let promptMsg = initialPromptMsg;
     while (true) {
       const choice = await ctx.ui.select(promptMsg, writeOptions);
+      if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
+        promptMsg = neovimUnavailablePrompt(
+          "write",
+          "standalone review is not available yet.",
+        );
+        continue;
+      }
       if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
 
       if (!path || typeof content !== "string") {
