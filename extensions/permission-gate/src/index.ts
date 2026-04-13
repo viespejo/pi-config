@@ -14,6 +14,12 @@ import {
   computeWriteDiffPreviewLocal,
   summarizeWriteForPrompt,
 } from "./write-preview.ts";
+import {
+  defaultOptionsForTool,
+  isAlwaysAllowedTool,
+  shouldBypassPromptForSession,
+  supportsSessionAllow,
+} from "./gate-policy.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -329,9 +335,6 @@ async function computeEditsDiffLocalFallback(
 }
 
 export default function (pi: ExtensionAPI) {
-  // Config: tools that should bypass the gate. Empty by default so all tools are gated.
-  const ALWAYS_ALLOW_TOOLS = new Set<string>(["read", "ls", "grep", "find"]);
-
   // Edit diff preview is shown in a dedicated custom dialog (lazy, on demand).
 
   // In-memory allow list for the running session. If the user chooses
@@ -665,8 +668,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const tool = event.toolName ?? "tool";
 
-    if (ALWAYS_ALLOW_TOOLS.has(tool)) return;
-    if (tool !== "bash" && sessionAllow.has(tool)) return; // already allowed for this session
+    if (isAlwaysAllowedTool(tool)) return;
+    if (shouldBypassPromptForSession(tool, sessionAllow)) return; // already allowed for this session
 
     // If no UI is available, be conservative and block the call
     if (!ctx.hasUI || !ctx.ui || typeof ctx.ui.select !== "function") {
@@ -679,10 +682,7 @@ export default function (pi: ExtensionAPI) {
     // Use a select so the user can allow permanently for this session (not available for bash)
     let choice: string | undefined;
     try {
-      const defaultOptions =
-        tool === "bash"
-          ? ["Yes", "No"]
-          : ["Yes", "Yes, always this session", "No"];
+      const defaultOptions = defaultOptionsForTool(tool);
 
       let promptMsg = `Tool: ${tool}\n\nAllow execution?`;
 
@@ -809,7 +809,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (choice === "Yes, always this session") {
-      if (tool !== "bash") {
+      if (supportsSessionAllow(tool)) {
         sessionAllow.add(tool);
       }
       return; // allow this call and future calls for session
