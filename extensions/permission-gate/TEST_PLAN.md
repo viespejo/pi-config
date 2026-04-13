@@ -31,19 +31,21 @@ npm test
 
 ## Partial coverage / recommended next tests (before or during refactor)
 
-1. **`session_start` warmup + fallback notify**
-   - Verify warmup runs only once and notify remains best-effort.
+1. ✅ **`session_start` warmup + fallback notify**
+   - Covered in `tests/tool-call.test.ts` (`warms up once on session_start and notify errors are best-effort`).
 
-2. **Session allow-list behavior for `bash`**
-   - Explicitly verify `bash` is NOT added to `sessionAllow`.
+2. ✅ **Session allow-list behavior for `bash`**
+   - Covered in `tests/tool-call.test.ts` (`does not persist session allow-list for bash`).
 
-3. **Metadata fallback for `edit`/`write`**
-   - Cover invalid input cases (missing path/content/edits) and expected prompt text.
+3. ✅ **Metadata fallback for `edit`/`write`**
+   - Covered in `tests/tool-call.test.ts`:
+     - `shows metadata fallback for write when content is missing`
+     - `shows metadata fallback for edit when path/edits are missing`
 
-4. **Diff/render failure paths**
-   - Ensure consistent behavior when diff computation or rendering fails.
+4. ✅ **Diff/render failure paths**
+   - Covered in `tests/tool-call.test.ts` (`keeps flow stable when diff view rendering fails`).
 
-5. **`showDiffInCustomDialog` (TUI navigation)**
+5. ⏳ **`showDiffInCustomDialog` (TUI navigation)**
    - If higher UI confidence is needed, add pure unit tests for offset/navigation logic (avoid fragile snapshots).
 
 ---

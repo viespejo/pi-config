@@ -36,17 +36,22 @@ function makeUI(params: {
   inputAnswer?: string;
   throwOnSelect?: boolean;
   throwOnInput?: boolean;
+  throwOnCustom?: boolean;
+  throwOnNotify?: boolean;
 }) {
   const {
     selectAnswers = [],
     inputAnswer,
     throwOnSelect = false,
     throwOnInput = false,
+    throwOnCustom = false,
+    throwOnNotify = false,
   } = params;
 
   const prompts: string[] = [];
   const selectCalls: Array<{ prompt: string; options: string[] }> = [];
   let customCalls = 0;
+  let notifyCalls = 0;
 
   return {
     ui: {
@@ -62,8 +67,12 @@ function makeUI(params: {
       },
       async custom() {
         customCalls++;
+        if (throwOnCustom) throw new Error("custom failed");
       },
-      notify() {},
+      notify() {
+        notifyCalls++;
+        if (throwOnNotify) throw new Error("notify failed");
+      },
     },
     get prompts() {
       return prompts;
@@ -73,6 +82,9 @@ function makeUI(params: {
     },
     get customCalls() {
       return customCalls;
+    },
+    get notifyCalls() {
+      return notifyCalls;
     },
   };
 }
@@ -197,6 +209,88 @@ describe("permission-gate tool_call", () => {
     assert.equal(res, undefined);
     assert.equal(ui.selectCalls.length, 2);
     assert.match(ui.prompts[1]!, /(Diff viewed|Preview unavailable)/);
+  });
+
+  it("does not persist session allow-list for bash", async () => {
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Yes", "Yes"] });
+
+    const first = await gate.emit(
+      "tool_call",
+      { toolName: "bash", input: { command: "echo first" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+    const second = await gate.emit(
+      "tool_call",
+      { toolName: "bash", input: { command: "echo second" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(first, undefined);
+    assert.equal(second, undefined);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.deepEqual(ui.selectCalls[0]!.options, ["Yes", "No"]);
+    assert.deepEqual(ui.selectCalls[1]!.options, ["Yes", "No"]);
+  });
+
+  it("shows metadata fallback for write when content is missing", async () => {
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["View diff", "No"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "write", input: { path: "file.txt" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res?.block, true);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.match(ui.prompts[1]!, /missing content input/i);
+    assert.match(ui.prompts[1]!, /Note: detailed preview unavailable/i);
+  });
+
+  it("shows metadata fallback for edit when path/edits are missing", async () => {
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["View diff", "No"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "edit", input: {} },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res?.block, true);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.match(ui.prompts[1]!, /missing path\/edits input/i);
+  });
+
+  it("keeps flow stable when diff view rendering fails", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-custom-fail-"));
+    const ui = makeUI({ selectAnswers: ["View diff", "No"], throwOnCustom: true });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "render-error.txt", content: "new content\n" },
+      },
+      { hasUI: true, ui: ui.ui, cwd: tmp },
+    );
+
+    assert.equal(res?.block, true);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.match(ui.prompts[1]!, /unexpected error/i);
+  });
+
+  it("warms up once on session_start and notify errors are best-effort", async () => {
+    const gate = setupExtension();
+    const ui = makeUI({ throwOnNotify: true });
+
+    await gate.emit("session_start", {}, { hasUI: true, ui: ui.ui });
+    await gate.emit("session_start", {}, { hasUI: true, ui: ui.ui });
+
+    assert.ok(ui.notifyCalls <= 1);
   });
 
   it("blocks when ui.select throws", async () => {
