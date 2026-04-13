@@ -15,6 +15,19 @@ import {
 } from "./gate-policy.ts";
 import { summarizeEditsForPrompt } from "./edit-preview.ts";
 import { extractEditInput, extractWriteInput } from "./tool-input.ts";
+import {
+  allowExecutionPrompt,
+  APPROVAL_OPTION_VIEW_DIFF,
+  APPROVAL_OPTION_YES,
+  APPROVAL_OPTION_YES_SESSION,
+  DENY_REASON_LABEL,
+  DENY_REASON_PLACEHOLDER,
+  DIFF_APPROVAL_OPTIONS,
+  diffViewedPrompt,
+  previewUnavailablePrompt,
+  previewUnavailableWithSourcePrompt,
+  unexpectedPreviewErrorPrompt,
+} from "./prompt-messages.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -65,15 +78,18 @@ export default function (pi: ExtensionAPI) {
     initialPromptMsg: string,
   ) {
     const { path, edits } = extractEditInput(input);
-    const editOptions = ["Yes", "View diff", "Yes, always this session", "No"];
+    const editOptions = DIFF_APPROVAL_OPTIONS;
 
     let promptMsg = initialPromptMsg;
     while (true) {
       const choice = await ctx.ui.select(promptMsg, editOptions);
-      if (choice !== "View diff") return choice;
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
 
       if (!path || !edits) {
-        promptMsg = `Tool: edit\n\nPreview unavailable: missing path/edits input.\n\nAllow execution?`;
+        promptMsg = previewUnavailablePrompt(
+          "edit",
+          "missing path/edits input.",
+        );
         continue;
       }
 
@@ -88,14 +104,19 @@ export default function (pi: ExtensionAPI) {
         if (!("error" in diffRes) && diffRes?.diff) {
           const rendered = renderDiff(diffRes.diff, { filePath: path });
           await showDiffInCustomDialog(ctx, path, rendered);
-          promptMsg = `Tool: edit\n\nDiff viewed (${engine}). Allow execution?`;
+          promptMsg = diffViewedPrompt("edit", engine);
         } else if ("error" in diffRes) {
           const errMsg = String(diffRes.error ?? "Preview unavailable");
           const meta = summarizeEditsForPrompt(edits, path);
-          promptMsg = `Tool: edit\n\nPreview unavailable (${engine}): ${errMsg}\n\n${meta}\n\nAllow execution?`;
+          promptMsg = previewUnavailableWithSourcePrompt(
+            "edit",
+            engine,
+            errMsg,
+            meta,
+          );
         }
       } catch {
-        promptMsg = `Tool: edit\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
+        promptMsg = unexpectedPreviewErrorPrompt("edit");
       }
     }
   }
@@ -106,17 +127,17 @@ export default function (pi: ExtensionAPI) {
     initialPromptMsg: string,
   ) {
     const { path, content } = extractWriteInput(input);
-    const writeOptions = ["Yes", "View diff", "Yes, always this session", "No"];
+    const writeOptions = DIFF_APPROVAL_OPTIONS;
 
     let promptMsg = initialPromptMsg;
     while (true) {
       const choice = await ctx.ui.select(promptMsg, writeOptions);
-      if (choice !== "View diff") return choice;
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
 
       if (!path || typeof content !== "string") {
         const reason = !path ? "missing path input" : "missing content input";
         const meta = summarizeWriteForPrompt({ path, content });
-        promptMsg = `Tool: write\n\nPreview unavailable: ${reason}.\n\n${meta}\n\nAllow execution?`;
+        promptMsg = previewUnavailablePrompt("write", `${reason}.`, meta);
         continue;
       }
 
@@ -128,7 +149,7 @@ export default function (pi: ExtensionAPI) {
           const rendered = renderDiff(diffRes.diff, { filePath: path });
           await showDiffInCustomDialog(ctx, path, rendered);
           const mode = diffRes.existedBeforeWrite ? "overwrite" : "create";
-          promptMsg = `Tool: write\n\nDiff viewed (write:${mode}). Allow execution?`;
+          promptMsg = diffViewedPrompt("write", `write:${mode}`);
         } else {
           const errMsg = "error" in diffRes ? diffRes.error : "Preview unavailable";
           const meta = summarizeWriteForPrompt({
@@ -141,10 +162,15 @@ export default function (pi: ExtensionAPI) {
             oldChars: "oldChars" in diffRes ? diffRes.oldChars : undefined,
             newChars: "newChars" in diffRes ? diffRes.newChars : undefined,
           });
-          promptMsg = `Tool: write\n\nPreview unavailable (write:local): ${errMsg}\n\n${meta}\n\nAllow execution?`;
+          promptMsg = previewUnavailableWithSourcePrompt(
+            "write",
+            "write:local",
+            errMsg,
+            meta,
+          );
         }
       } catch {
-        promptMsg = `Tool: write\n\nPreview unavailable due to an unexpected error.\n\nAllow execution?`;
+        promptMsg = unexpectedPreviewErrorPrompt("write");
       }
     }
   }
@@ -168,7 +194,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const defaultOptions = defaultOptionsForTool(tool);
 
-      const promptMsg = `Tool: ${tool}\n\nAllow execution?`;
+      const promptMsg = allowExecutionPrompt(tool);
 
       if (tool === "edit") {
         choice = await runEditApprovalLoop(ctx, event.input, promptMsg);
@@ -185,20 +211,20 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    if (choice === "Yes, always this session") {
+    if (choice === APPROVAL_OPTION_YES_SESSION) {
       if (supportsSessionAllow(tool)) {
         sessionAllow.add(tool);
       }
       return; // allow this call and future calls for session
     }
 
-    if (choice !== "Yes") {
+    if (choice !== APPROVAL_OPTION_YES) {
       // Ask optional reason for blocking to include in the returned reason
       let userReason: string | undefined;
       try {
         userReason = await ctx.ui.input(
-          "Why was this denied? (optional)",
-          "Reason for the LLM",
+          DENY_REASON_LABEL,
+          DENY_REASON_PLACEHOLDER,
         );
       } catch {
         // ignore input errors
