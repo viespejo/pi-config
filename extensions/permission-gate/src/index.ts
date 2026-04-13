@@ -10,6 +10,13 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
+import {
+  computeWriteDiffPreviewLocal,
+  summarizeWriteForPrompt,
+} from "./write-preview.ts";
+
+export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
+export type { WritePreviewResult } from "./write-preview.ts";
 
 // Note: computeEditsDiff is an internal utility not exported by the public
 // package API. We try to resolve it dynamically from the installed
@@ -121,40 +128,6 @@ function normalizeToLF(text: string) {
 
 function stripBom(text: string) {
   return text.startsWith("\uFEFF") ? text.slice(1) : text;
-}
-
-function generateSingleSidedDiffStringLocal(
-  content: string,
-  kind: "added" | "removed",
-) {
-  const rows = content.split("\n");
-  if (rows[rows.length - 1] === "") rows.pop();
-
-  if (rows.length === 0) {
-    return { diff: "", firstChangedLine: 1 };
-  }
-
-  const prefix = kind === "added" ? "+" : "-";
-  const lineNumWidth = String(rows.length).length;
-  const out = rows.map(
-    (line, i) => `${prefix}${String(i + 1).padStart(lineNumWidth, " ")} ${line}`,
-  );
-
-  return { diff: out.join("\n"), firstChangedLine: 1 };
-}
-
-function generateDiffStringOptimized(
-  oldContent: string,
-  newContent: string,
-  contextLines = 4,
-) {
-  if (!oldContent.length && newContent.length) {
-    return generateSingleSidedDiffStringLocal(newContent, "added");
-  }
-  if (oldContent.length && !newContent.length) {
-    return generateSingleSidedDiffStringLocal(oldContent, "removed");
-  }
-  return generateDiffStringLocal(oldContent, newContent, contextLines);
 }
 
 function generateDiffStringLocal(
@@ -353,114 +326,6 @@ async function computeEditsDiffLocalFallback(
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-export type WritePreviewResult =
-  | {
-      diff: string;
-      firstChangedLine?: number;
-      existedBeforeWrite: boolean;
-      oldChars: number;
-      newChars: number;
-    }
-  | {
-      error: string;
-      existedBeforeWrite?: boolean;
-      oldChars?: number;
-      newChars?: number;
-    };
-
-export async function computeWriteDiffPreviewLocal(
-  path: string,
-  content: string,
-  cwd: string,
-): Promise<WritePreviewResult> {
-  try {
-    if (!path || typeof path !== "string") {
-      return { error: "Missing path" };
-    }
-    if (typeof content !== "string") {
-      return { error: "Missing write content" };
-    }
-
-    const absolutePath = nodePath.isAbsolute(path)
-      ? path
-      : nodePath.resolve(cwd, path);
-
-    let previousRaw = "";
-    let existedBeforeWrite = true;
-    try {
-      previousRaw = await fs.promises.readFile(absolutePath, "utf-8");
-    } catch (err: any) {
-      if (err?.code === "ENOENT") {
-        existedBeforeWrite = false;
-        previousRaw = "";
-      } else {
-        return {
-          error: `Could not read existing file: ${String(err?.message ?? err)}`,
-        };
-      }
-    }
-
-    const oldContent = normalizeToLF(stripBom(previousRaw));
-    const newContent = normalizeToLF(stripBom(content));
-
-    if (oldContent === newContent) {
-      return {
-        error: `No changes made to ${path}.`,
-        existedBeforeWrite,
-        oldChars: oldContent.length,
-        newChars: newContent.length,
-      };
-    }
-
-    const diffRes = generateDiffStringOptimized(oldContent, newContent);
-    return {
-      ...diffRes,
-      existedBeforeWrite,
-      oldChars: oldContent.length,
-      newChars: newContent.length,
-    };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-export function summarizeWriteForPrompt(params: {
-  path?: string;
-  content?: string;
-  existedBeforeWrite?: boolean;
-  oldChars?: number;
-  newChars?: number;
-  extraNote?: string;
-}) {
-  const { path, content, existedBeforeWrite, oldChars, newChars, extraNote } =
-    params;
-
-  const targetState =
-    existedBeforeWrite === undefined
-      ? "unknown"
-      : existedBeforeWrite
-        ? "overwrite existing file"
-        : "create new file";
-
-  const nextChars =
-    typeof newChars === "number"
-      ? newChars
-      : typeof content === "string"
-        ? normalizeToLF(stripBom(content)).length
-        : undefined;
-
-  const summaryLines = [
-    path ? `Path: ${String(path)}` : undefined,
-    `Write mode: ${targetState}`,
-    typeof oldChars === "number" ? `Current file chars: ${oldChars}` : undefined,
-    typeof nextChars === "number" ? `New content chars: ${nextChars}` : undefined,
-    extraNote,
-    `Note: detailed preview unavailable. Showing metadata only.`,
-  ].filter(Boolean) as string[];
-
-  return summaryLines.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
