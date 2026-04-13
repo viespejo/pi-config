@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
@@ -102,28 +102,31 @@ export async function reviewInNeovim(params: {
 }
 
 async function defaultSpawnNvim(args: string[]): Promise<SpawnResult> {
-  return new Promise((resolve) => {
-    const child = spawn("nvim", args, {
+  try {
+    const res = spawnSync("nvim", args, {
       stdio: "inherit",
       env: { ...process.env },
     });
 
-    child.on("error", (err) => {
-      resolve({
+    if (res.error) {
+      return {
         ok: false,
-        reason: `failed to launch nvim: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    });
+        reason: `failed to launch nvim: ${res.error.message}`,
+      };
+    }
 
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ ok: true });
-      } else {
-        resolve({
-          ok: false,
-          reason: `nvim exited with code ${String(code)}`,
-        });
-      }
-    });
-  });
+    if (res.status === 0) {
+      return { ok: true };
+    }
+
+    return {
+      ok: false,
+      reason: `nvim exited with code ${String(res.status)}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `failed to launch nvim: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
