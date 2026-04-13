@@ -24,6 +24,7 @@ npm test
 | Policy defaults (`defaultOptionsForTool`, session support) | ✅ | `tests/gate-policy.test.ts` |
 | Tool input extraction (`path`, `edits`, `content`) | ✅ | `tests/tool-input.test.ts` |
 | Edit metadata summary (`summarizeEditsForPrompt`) | ✅ | `tests/edit-preview.test.ts` |
+| Edit local diff fallback (`computeEditsDiffLocalFallback`) | ✅ | `tests/edit-diff.test.ts` |
 | `write` flow with `View diff` option | ✅ | `tests/tool-call.test.ts` → `handles write diff preview flow for new files` |
 | `edit` flow with `View diff` option | ✅ | `tests/tool-call.test.ts` → `handles edit diff preview flow` |
 | `computeWriteDiffPreviewLocal`: new file case | ✅ | `tests/write-preview.test.ts` → `returns an all-added diff when target file does not exist` |
