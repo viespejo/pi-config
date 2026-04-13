@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { renderDiff } from "@mariozechner/pi-coding-agent";
+import fs from "node:fs/promises";
+import nodePath from "node:path";
 import {
   computeWriteDiffPreviewLocal,
   summarizeWriteForPrompt,
@@ -24,12 +26,16 @@ import {
   DENY_REASON_LABEL,
   DENY_REASON_PLACEHOLDER,
   DIFF_APPROVAL_OPTIONS,
+  REVIEW_OPTION_APPLY,
+  REVIEW_OPTION_BACK,
   diffViewedPrompt,
+  neovimReviewChangedPrompt,
   neovimUnavailablePrompt,
   previewUnavailablePrompt,
   previewUnavailableWithSourcePrompt,
   unexpectedPreviewErrorPrompt,
 } from "./prompt-messages.ts";
+import { reviewInNeovim, type NeovimReviewAdapters } from "./neovim-review.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -62,7 +68,17 @@ type GateCtx = {
   hasUI?: boolean;
   ui?: GateUI;
   cwd?: string;
+  neovimReviewAdapters?: NeovimReviewAdapters;
 };
+
+type ApprovalLoopResult =
+  | { type: "choice"; choice: string | undefined }
+  | {
+      type: "apply-reviewed";
+      filePath: string;
+      proposedContent: string;
+      reviewedContent: string;
+    };
 
 type GateCtxWithSelectUI = GateCtx & {
   hasUI: true;
@@ -87,6 +103,68 @@ async function askOptionalDenyReason(ctx: GateCtxWithSelectUI) {
 
 function blockedByUserReason(userReason?: string) {
   return userReason ? `Blocked by user. Reason: ${userReason}` : "Blocked by user";
+}
+
+async function buildProposedEditContent(
+  cwd: string,
+  filePath: string,
+  edits: Array<{ oldText?: unknown; newText?: unknown }>,
+) {
+  const absolutePath = nodePath.resolve(cwd, filePath);
+  const originalContent = await fs.readFile(absolutePath, "utf-8");
+
+  const normalized = edits.map((edit, idx) => {
+    if (typeof edit?.oldText !== "string" || edit.oldText.length === 0) {
+      throw new Error(`edits[${idx}].oldText must be a non-empty string.`);
+    }
+    if (typeof edit?.newText !== "string") {
+      throw new Error(`edits[${idx}].newText must be a string.`);
+    }
+    return { oldText: edit.oldText, newText: edit.newText, idx };
+  });
+
+  const matches = normalized.map((edit) => {
+    const first = originalContent.indexOf(edit.oldText);
+    if (first === -1) {
+      throw new Error(`Could not find edits[${edit.idx}].oldText in ${filePath}.`);
+    }
+    const second = originalContent.indexOf(edit.oldText, first + 1);
+    if (second !== -1) {
+      throw new Error(
+        `edits[${edit.idx}].oldText must be unique in ${filePath}.`,
+      );
+    }
+    return { ...edit, start: first, end: first + edit.oldText.length };
+  });
+
+  const ordered = [...matches].sort((a, b) => a.start - b.start);
+  for (let i = 1; i < ordered.length; i++) {
+    if (ordered[i - 1]!.end > ordered[i]!.start) {
+      throw new Error("Edit ranges overlap.");
+    }
+  }
+
+  let proposed = originalContent;
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const edit = ordered[i]!;
+    proposed = proposed.slice(0, edit.start) + edit.newText + proposed.slice(edit.end);
+  }
+
+  return proposed;
+}
+
+async function applyReviewedVersion(
+  cwd: string,
+  filePath: string,
+  reviewedContent: string,
+) {
+  const absolutePath = nodePath.resolve(cwd, filePath);
+  await fs.writeFile(absolutePath, reviewedContent, "utf-8");
+  return {
+    block: true,
+    reason:
+      "Blocked: reviewed version was applied manually in Neovim and written to disk.",
+  } as const;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -124,7 +202,7 @@ export default function (pi: ExtensionAPI) {
     ctx: GateCtxWithSelectUI,
     input: unknown,
     initialPromptMsg: string,
-  ) {
+  ): Promise<ApprovalLoopResult> {
     const { path, edits } = extractEditInput(input);
     const editOptions = [...DIFF_APPROVAL_OPTIONS];
 
@@ -132,13 +210,56 @@ export default function (pi: ExtensionAPI) {
     while (true) {
       const choice = await ctx.ui.select(promptMsg, editOptions);
       if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
-        promptMsg = neovimUnavailablePrompt(
-          "edit",
-          "standalone review is not available yet.",
-        );
-        continue;
+        if (!path || !edits) {
+          promptMsg = previewUnavailablePrompt(
+            "edit",
+            "missing path/edits input.",
+          );
+          continue;
+        }
+
+        try {
+          const cwd = ctx.cwd ?? process.cwd();
+          const proposedContent = await buildProposedEditContent(cwd, path, edits);
+          const reviewResult = await reviewInNeovim({
+            cwd,
+            filePath: path,
+            proposedContent,
+            adapters: ctx.neovimReviewAdapters,
+          });
+
+          if (reviewResult.status === "unavailable") {
+            promptMsg = neovimUnavailablePrompt("edit", reviewResult.reason);
+            continue;
+          }
+          if (reviewResult.status === "no-change") {
+            promptMsg = initialPromptMsg;
+            continue;
+          }
+
+          const reviewChoice = await ctx.ui.select(neovimReviewChangedPrompt("edit"), [
+            REVIEW_OPTION_APPLY,
+            REVIEW_OPTION_BACK,
+          ]);
+
+          if (reviewChoice === REVIEW_OPTION_APPLY) {
+            return {
+              type: "apply-reviewed",
+              filePath: path,
+              proposedContent,
+              reviewedContent: reviewResult.reviewedContent,
+            };
+          }
+
+          promptMsg = initialPromptMsg;
+          continue;
+        } catch (err) {
+          promptMsg = neovimUnavailablePrompt("edit", String(err));
+          continue;
+        }
       }
-      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
+
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
 
       if (!path || !edits) {
         promptMsg = previewUnavailablePrompt(
@@ -180,7 +301,7 @@ export default function (pi: ExtensionAPI) {
     ctx: GateCtxWithSelectUI,
     input: unknown,
     initialPromptMsg: string,
-  ) {
+  ): Promise<ApprovalLoopResult> {
     const { path, content } = extractWriteInput(input);
     const writeOptions = [...DIFF_APPROVAL_OPTIONS];
 
@@ -188,13 +309,48 @@ export default function (pi: ExtensionAPI) {
     while (true) {
       const choice = await ctx.ui.select(promptMsg, writeOptions);
       if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
-        promptMsg = neovimUnavailablePrompt(
-          "write",
-          "standalone review is not available yet.",
-        );
+        if (!path || typeof content !== "string") {
+          const reason = !path ? "missing path input" : "missing content input";
+          const meta = summarizeWriteForPrompt({ path, content });
+          promptMsg = previewUnavailablePrompt("write", `${reason}.`, meta);
+          continue;
+        }
+
+        const cwd = ctx.cwd ?? process.cwd();
+        const reviewResult = await reviewInNeovim({
+          cwd,
+          filePath: path,
+          proposedContent: content,
+          adapters: ctx.neovimReviewAdapters,
+        });
+
+        if (reviewResult.status === "unavailable") {
+          promptMsg = neovimUnavailablePrompt("write", reviewResult.reason);
+          continue;
+        }
+        if (reviewResult.status === "no-change") {
+          promptMsg = initialPromptMsg;
+          continue;
+        }
+
+        const reviewChoice = await ctx.ui.select(neovimReviewChangedPrompt("write"), [
+          REVIEW_OPTION_APPLY,
+          REVIEW_OPTION_BACK,
+        ]);
+
+        if (reviewChoice === REVIEW_OPTION_APPLY) {
+          return {
+            type: "apply-reviewed",
+            filePath: path,
+            proposedContent: content,
+            reviewedContent: reviewResult.reviewedContent,
+          };
+        }
+
+        promptMsg = initialPromptMsg;
         continue;
       }
-      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return choice;
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
 
       if (!path || typeof content !== "string") {
         const reason = !path ? "missing path input" : "missing content input";
@@ -261,9 +417,25 @@ export default function (pi: ExtensionAPI) {
       const promptMsg = allowExecutionPrompt(tool);
 
       if (tool === "edit") {
-        choice = await runEditApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        const editResult = await runEditApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        if (editResult.type === "apply-reviewed") {
+          return await applyReviewedVersion(
+            gateCtx.cwd ?? process.cwd(),
+            editResult.filePath,
+            editResult.reviewedContent,
+          );
+        }
+        choice = editResult.choice;
       } else if (tool === "write") {
-        choice = await runWriteApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        const writeResult = await runWriteApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        if (writeResult.type === "apply-reviewed") {
+          return await applyReviewedVersion(
+            gateCtx.cwd ?? process.cwd(),
+            writeResult.filePath,
+            writeResult.reviewedContent,
+          );
+        }
+        choice = writeResult.choice;
       } else {
         choice = await gateCtx.ui.select(promptMsg, defaultOptions);
       }

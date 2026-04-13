@@ -10,6 +10,8 @@ import {
   APPROVAL_OPTION_VIEW_DIFF,
   APPROVAL_OPTION_YES,
   APPROVAL_OPTION_YES_SESSION,
+  REVIEW_OPTION_APPLY,
+  REVIEW_OPTION_BACK,
 } from "../src/prompt-messages.ts";
 
 type Handler = (event: any, ctx: any) => any | Promise<any>;
@@ -230,6 +232,102 @@ describe("permission-gate tool_call", () => {
       APPROVAL_OPTION_NO,
     ]);
     assert.match(ui.prompts[1]!, /(Diff viewed|Preview unavailable)/);
+  });
+
+  it("returns to approval menu when neovim review has no changes", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-no-change-flow-"));
+    const ui = makeUI({ selectAnswers: ["Review in Neovim", "Yes"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "file.txt", content: "hello\n" },
+      },
+      {
+        hasUI: true,
+        ui: ui.ui,
+        cwd: tmp,
+        neovimReviewAdapters: {
+          spawnNvim: async () => ({ ok: true }),
+        },
+      },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.deepEqual(ui.selectCalls[1]!.options, [
+      APPROVAL_OPTION_YES,
+      APPROVAL_OPTION_VIEW_DIFF,
+      APPROVAL_OPTION_REVIEW_NVIM,
+      APPROVAL_OPTION_YES_SESSION,
+      APPROVAL_OPTION_NO,
+    ]);
+  });
+
+  it("shows changed-content intermediate prompt and supports back-to-menu", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-back-flow-"));
+    const ui = makeUI({
+      selectAnswers: ["Review in Neovim", "Back to approval menu", "No"],
+    });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "file.txt", content: "hello\n" },
+      },
+      {
+        hasUI: true,
+        ui: ui.ui,
+        cwd: tmp,
+        neovimReviewAdapters: {
+          spawnNvim: async (args: string[]) => {
+            await fs.writeFile(args[2]!, "hello reviewed\n", "utf-8");
+            return { ok: true };
+          },
+        },
+      },
+    );
+
+    assert.equal(res?.block, true);
+    assert.equal(ui.selectCalls.length, 3);
+    assert.deepEqual(ui.selectCalls[1]!.options, [REVIEW_OPTION_APPLY, REVIEW_OPTION_BACK]);
+    assert.deepEqual(ui.selectCalls[2]!.options, [
+      APPROVAL_OPTION_YES,
+      APPROVAL_OPTION_VIEW_DIFF,
+      APPROVAL_OPTION_REVIEW_NVIM,
+      APPROVAL_OPTION_YES_SESSION,
+      APPROVAL_OPTION_NO,
+    ]);
+  });
+
+  it("keeps approval flow when neovim is unavailable", async () => {
+    const gate = setupExtension();
+    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-unavailable-flow-"));
+    const ui = makeUI({ selectAnswers: ["Review in Neovim", "No"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      {
+        toolName: "write",
+        input: { path: "file.txt", content: "hello\n" },
+      },
+      {
+        hasUI: true,
+        ui: ui.ui,
+        cwd: tmp,
+        neovimReviewAdapters: {
+          spawnNvim: async () => ({ ok: false, reason: "nvim not found" }),
+        },
+      },
+    );
+
+    assert.equal(res?.block, true);
+    assert.equal(ui.selectCalls.length, 2);
+    assert.match(ui.prompts[1]!, /Review in Neovim unavailable: nvim not found/);
   });
 
   it("does not persist session allow-list for bash", async () => {
