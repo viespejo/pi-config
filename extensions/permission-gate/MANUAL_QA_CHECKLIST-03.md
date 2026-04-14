@@ -1,21 +1,22 @@
 # permission-gate – Manual QA Checklist (Plan 03 Bash Hardening)
 
-Date: ____________________
-Tester: __________________
+Date: 2026-04-14
+Tester: Vicente Espejo
 Environment:
-- OS: ____________________
-- Shell/TUI: _____________
-- Extension build/commit: ____________________
+- OS: Arch Linux
+- Shell/TUI: kitty + zsh
+- Neovim: NVIM v0.11.2
+- Extension build/commit: N/A (not provided)
 
 ---
 
 ## Preconditions
 
-- [ ] `permission-gate` extension is enabled.
-- [ ] Interactive UI is available (for approval prompts and notifications).
-- [ ] Disposable test workspace prepared.
-- [ ] `~/.pi/settings.json` and `<cwd>/.pi/settings.json` can be edited for test scenarios.
-- [ ] Ability to run slash command `/pgate`.
+- [x] `permission-gate` extension is enabled.
+- [x] Interactive UI is available (for approval prompts and notifications).
+- [x] Disposable test workspace prepared.
+- [x] `~/.pi/settings.json` and `<cwd>/.pi/settings.json` can be edited for test scenarios.
+- [x] Ability to run slash command `/pgate`.
 
 ---
 
@@ -30,11 +31,13 @@ Expected:
 - No approval path shown.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- Executed `mkfs.notreal /tmp/pgate-qa`.
+- Immediate block with message: `Blocked: hard-deny policy. Detected filesystem formatting command (mkfs).`
+- No approval prompt/approval path shown.
 
 ---
 
@@ -49,11 +52,14 @@ Expected:
 - Local `permissionGate.permissions` fully replaces global for this key.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- `/pgate reload` => `permission-gate reloaded: source=local, rules=1,warnings=0`
+- `/pgate test Bash(echo global-allow-1)` => `action=default, rule=none, highRisk=no`
+- `/pgate test Bash(echo local-ask-1)` => `action=ask, rule=Bash(echo local-ask*), highRisk=no`
+- `/pgate status` => `source=local, rules=1 (allow=0, ask=1, deny=0), warnings=0`
 
 ---
 
@@ -69,11 +75,14 @@ Expected:
 - Priority is deterministic: `deny` first, then `ask`, then `allow`, then default.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- `Bash(git push origin main)` evaluated as `deny` (deny wins over ask/allow).
+- `Bash(echo ask-and-allow-1)` evaluated as `ask` (ask wins over allow).
+- `Bash(echo allow-only-1)` evaluated as `allow`.
+- `Bash(echo no-match-1)` evaluated as `default`.
 
 ---
 
@@ -91,11 +100,14 @@ Expected:
 - Invalid typed confirmation blocks command.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- High-risk command showed two-step confirmation flow.
+- `RUN`/`run` allowed execution path.
+- Invalid typed confirmation blocked with high-risk confirmation failure.
+- When allowed, `sudo` then requested password and failed due to credentials (expected post-gate behavior; does not affect AC).
 
 ---
 
@@ -110,11 +122,12 @@ Expected:
 - No typed `RUN` step.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- Matching non-high-risk `ask` command produced only simple one-step prompt (`Run once` / `Block`).
+- No typed confirmation step requested.
 
 ---
 
@@ -128,11 +141,12 @@ Expected:
 - Still requires high-risk two-step confirmation.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- With `allow` rule matching `sudo *`, command still required high-risk two-step flow.
+- `allow` did not bypass typed `RUN`/`run` confirmation.
 
 ---
 
@@ -149,62 +163,65 @@ Expected:
 - `allow`: matching segment can apply, high-risk still enforced.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- `echo ok && git push origin main` => `deny` (deny segment matched).
+- `echo ok && git status` => `ask` (ask segment matched).
+- `echo seg-allow-1 && echo done` => `allow` (allow segment matched).
+- High-risk segment scenario reported highRisk accordingly and preserves high-risk enforcement behavior.
 
 ---
 
 ## AC-8: `/pgate` command is operational
 
 ### `/pgate status`
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 ### `/pgate test Bash(...)`
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 ### `/pgate reload`
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 ### `/pgate clear-session`
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Expected:
 - Clear and coherent feedback for each subcommand.
 
 Evidence/notes:
-- ____________________________________________
+- All `/pgate` subcommands returned coherent operational output: status summary, test action/rule/highRisk details, reload confirmation, and clear-session confirmation.
 
 ---
 
 ## AC-9: Existing non-bash behavior remains stable
 
 Regression checks:
-- [ ] `edit` flow still supports `View diff` and `Review in Neovim`.
-- [ ] `write` flow still supports `View diff` and `Review in Neovim`.
-- [ ] Non-bash `Yes, always this session` still works.
-- [ ] Read-only tools remain auto-allowed.
+- [x] `edit` flow still supports `View diff` and `Review in Neovim`.
+- [x] `write` flow still supports `View diff` and `Review in Neovim`.
+- [x] Non-bash `Yes, always this session` still works.
+- [x] Read-only tools remain auto-allowed.
 
 Result:
-- [ ] PASS
+- [x] PASS
 - [ ] FAIL
 
 Evidence/notes:
-- ____________________________________________
+- Regression checks completed; no behavior changes detected outside bash hardening scope.
 
 ---
 
 ## Final QA verdict
 
-- [ ] All AC-1..AC-9 passed
+- [x] All AC-1..AC-9 passed
 - [ ] Regressions detected (document below)
 
 Summary:
-- ____________________________________________
-- ____________________________________________
+- Manual QA completed for Plan 03 bash hardening; all acceptance criteria passed.
+- No regressions observed in existing non-bash approval/diff/review flows.
