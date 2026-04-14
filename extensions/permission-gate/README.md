@@ -1,144 +1,152 @@
 # permission-gate extension
 
-A conservative approval layer for Pi tool calls.
+A conservative approval layer for Pi tool calls, with hardened `bash` safety.
 
-It prompts before potentially dangerous tool executions, supports diff previews for file mutations, and keeps a small in-memory allow-list for the current session.
+## What this phase adds
 
-## TL;DR (30 seconds)
+This phase hardens `bash` execution without changing existing `edit` / `write` workflows.
 
-- Read-only tools (`read`, `ls`, `grep`, `find`) are auto-allowed.
-- Other tools require explicit approval in the UI.
-- `edit` and `write` support **View diff** and **Review in Neovim** before approving.
-- If UI is unavailable, calls are blocked conservatively.
-- `Yes, always this session` works for non-`bash` tools.
+Implemented behavior:
+- Non-overridable **hard-deny** checks for catastrophic shell commands.
+- Config-driven `bash` policy from settings (`deny > ask > allow > default`).
+- **High-risk** detection with mandatory two-step confirmation (`RUN` / `run`).
+- `/pgate` operational command for status, testing, reload, and session reset.
 
-Quick test run:
+Preserved behavior:
+- `edit` / `write` approval loop and Neovim review flow remain unchanged.
+- Read-only tools (`read`, `ls`, `grep`, `find`) stay auto-allowed.
+- `bash` still has no "always this session" mode.
+
+---
+
+## Bash decision order
+
+For `bash` tool calls, the extension evaluates in this order:
+
+1. **Hard-deny** (immediate block, no approval path)
+2. **Configured rules** from settings (`deny > ask > allow`)
+3. **High-risk classifier**
+4. **Default simple confirmation**
+
+Important rule interaction:
+- `allow` does **not** bypass high-risk protection.
+- `ask` uses simple confirmation unless the command is also high-risk.
+
+---
+
+## Bash confirmation UX
+
+### Simple confirmation
+Used for default and `ask` (non-high-risk):
+- `Run once`
+- `Block`
+
+### High-risk confirmation
+Used whenever command is classified high-risk:
+1. First choice:
+   - `Run high-risk once`
+   - `Block`
+2. Second required step:
+   - typed confirmation input must be exactly `RUN` or `run`
+
+If any high-risk step fails, the command is blocked.
+
+---
+
+## High-risk signals
+
+High-risk includes (non-exhaustive examples):
+- `sudo`
+- `curl ... | bash` / `wget ... | bash`
+- `chmod -R 777`
+- `chown -R root`
+- `git reset --hard`
+- `git clean -f...`
+- `dd if=...`
+- explicit path targets outside cwd (when path tokens are resolvable)
+- script / runner execution patterns:
+  - direct script calls or interpreter-driven script calls
+  - `npm|pnpm|yarn|bun run`, `make`, `just`
+
+Hard-deny includes catastrophic patterns (e.g. destructive root deletion) and blocks immediately.
+
+---
+
+## Config contract
+
+Settings are loaded from:
+- Global: `~/.pi/settings.json`
+- Local: `<cwd>/.pi/settings.json`
+
+Read key:
+- `permissionGate.permissions`
+
+Example schema:
+
+```json
+{
+  "permissionGate": {
+    "permissions": {
+      "allow": ["Bash(echo *)"],
+      "ask": ["Bash(git push *)"],
+      "deny": ["Bash(rm -rf *)"]
+    }
+  }
+}
+```
+
+### Precedence between files
+
+If local `<cwd>/.pi/settings.json` defines `permissionGate.permissions`, it **fully replaces** global permissions for this key.
+
+### Rule syntax
+
+- `Tool(specifier)`
+- wildcard support via `*`
+- runtime decisioning in this phase evaluates only `Bash(...)` rules
+
+### Segmentation for composed bash commands
+
+For commands like:
+
+```bash
+echo ok && git push origin main
+```
+
+matching is performed per shell segment (`&&`, `||`, `;`, `|`, newline boundaries):
+- `deny` / `ask`: any matching segment applies
+- `allow`: matching segment can allow candidate, but high-risk checks still apply
+
+---
+
+## `/pgate` command
+
+Available subcommands:
+- `/pgate status`
+  - shows active settings source, rule counts, warnings
+- `/pgate test Bash(<command>)`
+  - evaluates config + risk classification and reports result
+- `/pgate reload`
+  - reloads permission-rule cache only
+- `/pgate clear-session`
+  - clears in-memory non-bash session allow-list
+
+`/pgate reload` does **not** clear session allow-list.
+
+---
+
+## Non-bash behavior (unchanged)
+
+- `read`, `ls`, `grep`, `find`: auto-allowed
+- most tools: `Yes`, `Yes, always this session`, `No`
+- `edit` / `write`: keep diff + Neovim review loop unchanged
+- when UI is unavailable for required confirmation paths, calls are blocked conservatively
+
+---
+
+## Test
 
 ```bash
 cd extensions/permission-gate
 npm test
 ```
-
----
-
-## What this extension does
-
-On each `tool_call`, the extension applies this policy:
-
-1. **Always allow** read-only tools:
-   - `read`
-   - `ls`
-   - `grep`
-   - `find`
-2. For other tools, ask the user for approval in the UI.
-3. If there is **no UI available**, block the call conservatively.
-
-For `edit` and `write`, the prompt includes a **View diff** option.
-
----
-
-## Approval behavior
-
-### Default choices
-
-- For most tools: `Yes`, `Yes, always this session`, `No`
-- For `bash`: `Yes`, `No` (no session persistence)
-- For `edit` / `write`: `Yes`, `View diff`, `Review in Neovim`, `Yes, always this session`, `No`
-
-### Session allow-list
-
-If the user chooses **"Yes, always this session"** for a non-`bash` tool, that tool is remembered and future calls of the same tool are auto-allowed for this agent session.
-
-### Denials
-
-If denied, the extension optionally asks for a reason and returns:
-
-- `Blocked by user`
-- or `Blocked by user. Reason: <text>`
-
----
-
-## Review in Neovim behavior (`edit` / `write`)
-
-When the user selects **Review in Neovim**, the extension opens a standalone diff review (`nvim -d`) between current and proposed content.
-
-- If Neovim is unavailable or fails to launch, the flow stays in the same approval loop and shows a contextual **Review in Neovim unavailable** prompt.
-- If Neovim closes with **no content changes**, the extension returns directly to the original approval menu (no extra intermediate prompt).
-- If Neovim closes with **content changes**, the extension shows an intermediate decision:
-  - `Apply reviewed version`
-  - `Back to approval menu`
-
-### Changed-content decisions
-
-- **Apply reviewed version**
-  - Writes the reviewed content to the target file immediately.
-  - Blocks the original tool call so the agent does not overwrite the reviewed content.
-  - If the reviewed content contains `ai:` comments, sends a `deliverAs: "steer"` message instructing the agent to:
-    1) re-read the file,
-    2) follow every `ai:` instruction,
-    3) remove all `ai:` comment lines.
-- **Back to approval menu**
-  - Discards reviewed output from that attempt.
-  - Returns to the original approval menu loop without writing reviewed content.
-
-## Diff preview behavior
-
-### `write`
-
-- Computes a local preview diff between existing file content and incoming content.
-- Supports both overwrite and new-file creation previews.
-- If content is unchanged, reports an explicit no-op style message.
-- If diff rendering fails unexpectedly, falls back to a safe "preview unavailable" prompt.
-
-### `edit`
-
-- Tries to load Pi's internal edit-diff utility once and cache it.
-- If not available, falls back to a local exact-match edit diff implementation.
-- The user is informed via a one-time warning notification during session warmup when fallback is used.
-
----
-
-## Events used
-
-- `session_start`
-  - Warm up internal edit-diff loader once.
-  - Optionally show a warning notification if local edit fallback is active.
-- `tool_call`
-  - Apply approval policy and return block decisions when needed.
-
----
-
-## File map
-
-- `src/index.ts` — main orchestration and event handlers
-- `src/gate-policy.ts` — allow rules and option presets
-- `src/tool-input.ts` — robust extraction of tool input payloads
-- `src/write-preview.ts` — write preview diff + metadata summary
-- `src/edit-diff-loader.ts` — one-time internal edit-diff loader
-- `src/edit-diff.ts` — local edit diff fallback
-- `src/edit-preview.ts` — edit metadata summary for fallback prompts
-- `src/diff-viewer.ts` — custom UI rendering for diff dialogs
-- `src/prompt-messages.ts` — centralized prompt/message constants
-
----
-
-## Testing
-
-Run tests from this extension directory:
-
-```bash
-cd extensions/permission-gate
-npm test
-```
-
-Current suite covers policy logic, input parsing, prompt templates, edit/write preview flows, loader caching, fallback behavior, and end-to-end `tool_call` behavior.
-
-See `TEST_PLAN.md` for the coverage matrix.
-
----
-
-## Notes and constraints
-
-- The extension is intentionally conservative: if UI is unavailable or prompt interaction fails, it blocks.
-- Session allow-list is in-memory only (per running agent process).
-- Package is configured as ESM (`"type": "module"`).

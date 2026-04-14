@@ -20,8 +20,12 @@ export function shouldBypassPromptForSession(
   return supportsSessionAllow(tool) && sessionAllow.has(tool);
 }
 
-export function defaultOptionsForTool(tool: string) {
-  return tool === "bash"
-    ? ["Yes", "No"]
-    : ["Yes", "Yes, always this session", "No"];
+export function defaultOptionsForTool(tool: string, options?: { highRiskBash?: boolean }) {
+  if (tool === "bash") {
+    return options?.highRiskBash
+      ? ["Run high-risk once", "Block"]
+      : ["Run once", "Block"];
+  }
+
+  return ["Yes", "Yes, always this session", "No"];
 }

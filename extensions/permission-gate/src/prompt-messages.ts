@@ -4,6 +4,13 @@ export const APPROVAL_OPTION_REVIEW_NVIM = "Review in Neovim";
 export const APPROVAL_OPTION_YES_SESSION = "Yes, always this session";
 export const APPROVAL_OPTION_NO = "No";
 
+export const APPROVAL_OPTION_RUN_ONCE = "Run once";
+export const APPROVAL_OPTION_RUN_HIGH_RISK_ONCE = "Run high-risk once";
+export const APPROVAL_OPTION_BLOCK = "Block";
+
+export const RUN_CONFIRM_LABEL = "Type RUN to confirm";
+export const RUN_CONFIRM_PLACEHOLDER = "RUN";
+
 export const REVIEW_OPTION_APPLY = "Apply reviewed version";
 export const REVIEW_OPTION_BACK = "Back to approval menu";
 
@@ -20,6 +27,19 @@ export const DENY_REASON_PLACEHOLDER = "Reason for the LLM";
 
 export function allowExecutionPrompt(tool: string) {
   return `Tool: ${tool}\n\nAllow execution?`;
+}
+
+export function bashSimplePrompt(command: string, reason?: string) {
+  return `Tool: bash\n\nCommand:\n${command}${reason ? `\n\nReason: ${reason}` : ""}\n\nRun this command once?`;
+}
+
+export function bashHighRiskPrompt(command: string, reasons: string[]) {
+  const details = reasons.length > 0 ? `\n\nHigh-risk reasons:\n- ${reasons.join("\n- ")}` : "";
+  return `Tool: bash\n\nCommand:\n${command}${details}\n\nThis command is high risk.`;
+}
+
+export function bashRunConfirmationPrompt() {
+  return "Final confirmation required: type RUN to execute once.";
 }
 
 export function previewUnavailablePrompt(

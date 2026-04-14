@@ -22,8 +22,12 @@ describe("gate-policy", () => {
     assert.equal(isAlwaysAllowedTool("edit"), false);
   });
 
-  it("uses strict options for bash", () => {
-    assert.deepEqual(defaultOptionsForTool("bash"), ["Yes", "No"]);
+  it("uses bash options with no session persistence", () => {
+    assert.deepEqual(defaultOptionsForTool("bash"), ["Run once", "Block"]);
+    assert.deepEqual(defaultOptionsForTool("bash", { highRiskBash: true }), [
+      "Run high-risk once",
+      "Block",
+    ]);
   });
 
   it("uses session options for non-bash tools", () => {

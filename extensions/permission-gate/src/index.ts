@@ -20,6 +20,8 @@ import { extractEditInput, extractWriteInput } from "./tool-input.ts";
 import {
   allowExecutionPrompt,
   APPROVAL_OPTION_REVIEW_NVIM,
+  APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
+  APPROVAL_OPTION_RUN_ONCE,
   APPROVAL_OPTION_VIEW_DIFF,
   APPROVAL_OPTION_YES,
   APPROVAL_OPTION_YES_SESSION,
@@ -28,6 +30,11 @@ import {
   DIFF_APPROVAL_OPTIONS,
   REVIEW_OPTION_APPLY,
   REVIEW_OPTION_BACK,
+  RUN_CONFIRM_LABEL,
+  RUN_CONFIRM_PLACEHOLDER,
+  bashHighRiskPrompt,
+  bashRunConfirmationPrompt,
+  bashSimplePrompt,
   diffViewedPrompt,
   neovimReviewChangedPrompt,
   neovimUnavailablePrompt,
@@ -36,6 +43,13 @@ import {
   unexpectedPreviewErrorPrompt,
 } from "./prompt-messages.ts";
 import { reviewInNeovim, type NeovimReviewAdapters } from "./neovim-review.ts";
+import {
+  evaluatePermission,
+  loadPermissionState,
+  parseTestExpression,
+  reloadPermissionState,
+  totalRuleCount,
+} from "./permission-rules.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -193,6 +207,141 @@ async function applyReviewedVersion(params: {
   } as const;
 }
 
+type BashAssessment = {
+  hardDenyReason?: string;
+  highRisk: boolean;
+  highRiskReasons: string[];
+};
+
+const HARD_DENY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\brm\s+-rf\s+\/(\s|$)/i, reason: "Detected destructive root deletion (rm -rf /)." },
+  { pattern: /\bmkfs(\.[a-z0-9_+-]+)?\b/i, reason: "Detected filesystem formatting command (mkfs)." },
+  { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, reason: "Detected fork bomb pattern." },
+  { pattern: /\b(shutdown|reboot|poweroff|halt)\b/i, reason: "Detected system power operation command." },
+  { pattern: /\bdd\s+if=\S+\s+of=\/dev\/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)/i, reason: "Detected raw disk write via dd to /dev device." },
+];
+
+const HIGH_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /(^|\s)sudo(\s|$)/i, reason: "Uses sudo." },
+  { pattern: /curl\b[^\n|]*\|\s*(bash|sh|zsh)\b/i, reason: "Pipes curl output to a shell." },
+  { pattern: /wget\b[^\n|]*\|\s*(bash|sh|zsh)\b/i, reason: "Pipes wget output to a shell." },
+  { pattern: /\bchmod\s+-R\s+777\b/i, reason: "Uses chmod -R 777." },
+  { pattern: /\bchown\s+-R\s+root\b/i, reason: "Uses chown -R root." },
+  { pattern: /\bgit\s+reset\s+--hard\b/i, reason: "Uses git reset --hard." },
+  { pattern: /\bgit\s+clean\s+-f[a-z]*\b/i, reason: "Uses forceful git clean." },
+  { pattern: /\bdd\s+if=\S+/i, reason: "Uses dd with explicit input." },
+];
+
+const INTERPRETER_NAMES = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "fish",
+  "python",
+  "python3",
+  "node",
+  "deno",
+  "ruby",
+  "perl",
+  "php",
+  "pwsh",
+  "powershell",
+]);
+
+const SCRIPT_EXTENSIONS = [".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".php"];
+
+function tokenizeShellLike(input: string) {
+  const matches = input.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g);
+  return matches ?? [];
+}
+
+function unquote(token: string) {
+  const trimmed = token.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function normalizePathToken(token: string, cwd: string) {
+  if (!token || token.startsWith("-") || token.includes("://")) return undefined;
+  if (token.includes("*") || token.includes("?") || token.includes("$") || token.includes("{")) {
+    return undefined;
+  }
+
+  if (token.startsWith("~/")) return nodePath.resolve(process.env.HOME ?? "~", token.slice(2));
+  if (nodePath.isAbsolute(token)) return nodePath.normalize(token);
+  if (token.startsWith("./") || token.startsWith("../")) return nodePath.resolve(cwd, token);
+  return undefined;
+}
+
+function isOutsideCwd(targetPath: string, cwd: string) {
+  const rel = nodePath.relative(cwd, targetPath);
+  return rel.startsWith("..") || nodePath.isAbsolute(rel);
+}
+
+function isScriptPath(token: string) {
+  const lower = token.toLowerCase();
+  return SCRIPT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function classifyBashRisk(command: string, cwd: string): BashAssessment {
+  for (const { pattern, reason } of HARD_DENY_PATTERNS) {
+    if (pattern.test(command)) {
+      return {
+        hardDenyReason: reason,
+        highRisk: true,
+        highRiskReasons: [reason],
+      };
+    }
+  }
+
+  const reasons = new Set<string>();
+
+  for (const { pattern, reason } of HIGH_RISK_PATTERNS) {
+    if (pattern.test(command)) reasons.add(reason);
+  }
+
+  const segments = command
+    .split(/(?:&&|\|\||;|\||\n)/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const segment of segments) {
+    const tokens = tokenizeShellLike(segment).map(unquote).filter(Boolean);
+    if (tokens.length === 0) continue;
+
+    const cmd = tokens[0]!.toLowerCase();
+    if (cmd === "npm" || cmd === "pnpm" || cmd === "yarn" || cmd === "bun") {
+      if (tokens.includes("run")) reasons.add(`Uses script runner: ${cmd} run`);
+    }
+    if (cmd === "make" || cmd === "just") {
+      reasons.add(`Uses task runner: ${cmd}`);
+    }
+
+    if (INTERPRETER_NAMES.has(cmd) && tokens[1] && isScriptPath(tokens[1]!)) {
+      reasons.add(`Executes script via interpreter (${cmd} ${tokens[1]}).`);
+    }
+
+    if (isScriptPath(cmd) || cmd.startsWith("./") || cmd.startsWith("../")) {
+      reasons.add(`Executes script directly (${tokens[0]}).`);
+    }
+
+    for (const tok of tokens) {
+      const resolved = normalizePathToken(tok, cwd);
+      if (!resolved) continue;
+      if (isOutsideCwd(resolved, cwd)) {
+        reasons.add(`Targets a path outside cwd (${tok}).`);
+      }
+    }
+  }
+
+  return {
+    highRisk: reasons.size > 0,
+    highRiskReasons: [...reasons],
+  };
+}
+
 export default function (pi: ExtensionAPI) {
   // Edit diff preview is shown in a dedicated custom dialog (lazy, on demand).
 
@@ -223,6 +372,89 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  function notifyCommand(ctx: any, message: string, level: "info" | "warning" | "error" = "info") {
+    try {
+      if (ctx?.ui?.notify) {
+        ctx.ui.notify(message, level);
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+    console.log(`[permission-gate] ${level.toUpperCase()}: ${message}`);
+  }
+
+  if (typeof (pi as any).registerCommand === "function") {
+    pi.registerCommand("pgate", {
+      description: "permission-gate operational command: status|test|reload|clear-session",
+      handler: async (args, ctx) => {
+        const raw = String(args ?? "").trim();
+        const [subcommand, ...rest] = raw.length > 0 ? raw.split(/\s+/) : ["status"];
+        const cwd = (ctx as any).cwd ?? process.cwd();
+
+        if (subcommand === "status") {
+          const state = loadPermissionState(cwd);
+          const count = totalRuleCount(state);
+          notifyCommand(
+            ctx,
+            `permission-gate status: source=${state.activeSource}, rules=${count} (allow=${state.merged.allow.length}, ask=${state.merged.ask.length}, deny=${state.merged.deny.length}), warnings=${state.warnings.length}`,
+            "info",
+          );
+          return;
+        }
+
+        if (subcommand === "reload") {
+          const state = reloadPermissionState(cwd);
+          notifyCommand(
+            ctx,
+            `permission-gate reloaded: source=${state.activeSource}, rules=${totalRuleCount(state)}, warnings=${state.warnings.length}`,
+            "info",
+          );
+          return;
+        }
+
+        if (subcommand === "clear-session") {
+          const before = sessionAllow.size;
+          sessionAllow.clear();
+          notifyCommand(ctx, `permission-gate session allow-list cleared (${before} -> 0).`, "info");
+          return;
+        }
+
+        if (subcommand === "test") {
+          const expression = rest.join(" ").trim();
+          if (!expression) {
+            notifyCommand(ctx, "Usage: /pgate test Bash(<command>)", "warning");
+            return;
+          }
+
+          const parsed = parseTestExpression(expression);
+          if (parsed.toolName !== "bash") {
+            notifyCommand(ctx, "Only Bash(...) expressions are supported in this phase.", "warning");
+            return;
+          }
+
+          const state = loadPermissionState(cwd);
+          const verdict = evaluatePermission(parsed.toolName, parsed.input, cwd, state);
+          const command = typeof parsed.input.command === "string" ? parsed.input.command : "";
+          const risk = classifyBashRisk(command, cwd);
+          const hardDeny = Boolean(risk.hardDenyReason);
+
+          notifyCommand(
+            ctx,
+            `pgate test => action=${hardDeny ? "deny(hard-deny)" : verdict.action}, rule=${verdict.matchedRule ?? "none"}, highRisk=${risk.highRisk ? "yes" : "no"}${risk.highRiskReasons.length ? `, reasons=${risk.highRiskReasons.join(" | ")}` : ""}`,
+            hardDeny ? "warning" : "info",
+          );
+          return;
+        }
+
+        notifyCommand(
+          ctx,
+          "Unknown /pgate subcommand. Use: status | test Bash(...) | reload | clear-session",
+          "warning",
+        );
+      },
+    });
+  }
 
   async function runEditApprovalLoop(
     ctx: GateCtxWithSelectUI,
@@ -426,6 +658,104 @@ export default function (pi: ExtensionAPI) {
 
     if (isAlwaysAllowedTool(tool)) return;
     if (shouldBypassPromptForSession(tool, sessionAllow)) return; // already allowed for this session
+
+    if (tool === "bash") {
+      const cwd = gateCtx.cwd ?? process.cwd();
+      const command =
+        typedEvent.input && typeof typedEvent.input === "object" &&
+        typeof (typedEvent.input as Record<string, unknown>).command === "string"
+          ? String((typedEvent.input as Record<string, unknown>).command)
+          : "";
+
+      const risk = classifyBashRisk(command, cwd);
+      if (risk.hardDenyReason) {
+        return {
+          block: true,
+          reason: `Blocked: hard-deny policy. ${risk.hardDenyReason}`,
+        };
+      }
+
+      const permissionState = loadPermissionState(cwd);
+      const configured = evaluatePermission("bash", { command }, cwd, permissionState);
+      if (configured.action === "deny") {
+        return {
+          block: true,
+          reason: configured.reason ?? "Blocked by configured bash deny rule.",
+        };
+      }
+
+      const requiresHighRiskConfirmation = risk.highRisk;
+
+      if (configured.action === "allow" && !requiresHighRiskConfirmation) {
+        return;
+      }
+
+      if (!hasSelectUI(gateCtx)) {
+        return {
+          block: true,
+          reason: "Blocked: no UI available for confirmation",
+        };
+      }
+
+      let bashChoice: string | undefined;
+      try {
+        if (requiresHighRiskConfirmation) {
+          const highRiskReasons = [
+            ...(configured.reason ? [configured.reason] : []),
+            ...risk.highRiskReasons,
+          ];
+          bashChoice = await gateCtx.ui.select(
+            bashHighRiskPrompt(command, highRiskReasons),
+            defaultOptionsForTool("bash", { highRiskBash: true }),
+          );
+        } else {
+          bashChoice = await gateCtx.ui.select(
+            bashSimplePrompt(command, configured.reason),
+            defaultOptionsForTool("bash"),
+          );
+        }
+      } catch (err) {
+        return {
+          block: true,
+          reason: `Blocked: ui.select failed (${String(err)})`,
+        };
+      }
+
+      if (requiresHighRiskConfirmation) {
+        if (bashChoice !== APPROVAL_OPTION_RUN_HIGH_RISK_ONCE) {
+          const userReason = await askOptionalDenyReason(gateCtx);
+          return { block: true, reason: blockedByUserReason(userReason) };
+        }
+
+        try {
+          const typed = typeof gateCtx.ui.input === "function"
+            ? await gateCtx.ui.input(RUN_CONFIRM_LABEL, RUN_CONFIRM_PLACEHOLDER)
+            : undefined;
+          if (typed !== "RUN" && typed !== "run") {
+            return {
+              block: true,
+              reason: `Blocked: high-risk confirmation failed. ${bashRunConfirmationPrompt()}`,
+            };
+          }
+          return;
+        } catch {
+          return {
+            block: true,
+            reason: "Blocked: high-risk confirmation failed.",
+          };
+        }
+      }
+
+      if (bashChoice !== APPROVAL_OPTION_RUN_ONCE) {
+        const userReason = await askOptionalDenyReason(gateCtx);
+        return {
+          block: true,
+          reason: blockedByUserReason(userReason),
+        };
+      }
+
+      return;
+    }
 
     // If no UI is available, be conservative and block the call
     if (!hasSelectUI(gateCtx)) {

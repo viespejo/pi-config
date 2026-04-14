@@ -2,8 +2,11 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
   allowExecutionPrompt,
+  APPROVAL_OPTION_BLOCK,
   APPROVAL_OPTION_NO,
   APPROVAL_OPTION_REVIEW_NVIM,
+  APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
+  APPROVAL_OPTION_RUN_ONCE,
   APPROVAL_OPTION_VIEW_DIFF,
   APPROVAL_OPTION_YES,
   APPROVAL_OPTION_YES_SESSION,
@@ -12,6 +15,11 @@ import {
   DIFF_APPROVAL_OPTIONS,
   REVIEW_OPTION_APPLY,
   REVIEW_OPTION_BACK,
+  RUN_CONFIRM_LABEL,
+  RUN_CONFIRM_PLACEHOLDER,
+  bashHighRiskPrompt,
+  bashRunConfirmationPrompt,
+  bashSimplePrompt,
   diffViewedPrompt,
   neovimReviewChangedPrompt,
   neovimReviewNoChangesMessage,
@@ -30,10 +38,31 @@ describe("prompt-messages", () => {
       APPROVAL_OPTION_YES_SESSION,
       APPROVAL_OPTION_NO,
     ]);
+    assert.equal(APPROVAL_OPTION_RUN_ONCE, "Run once");
+    assert.equal(APPROVAL_OPTION_RUN_HIGH_RISK_ONCE, "Run high-risk once");
+    assert.equal(APPROVAL_OPTION_BLOCK, "Block");
+    assert.equal(RUN_CONFIRM_LABEL, "Type RUN to confirm");
+    assert.equal(RUN_CONFIRM_PLACEHOLDER, "RUN");
     assert.equal(REVIEW_OPTION_APPLY, "Apply reviewed version");
     assert.equal(REVIEW_OPTION_BACK, "Back to approval menu");
     assert.match(DENY_REASON_LABEL, /denied/i);
     assert.match(DENY_REASON_PLACEHOLDER, /LLM/i);
+  });
+
+  it("builds bash prompts", () => {
+    const simple = bashSimplePrompt("echo ok", "rule ask");
+    const highRisk = bashHighRiskPrompt("sudo rm -rf /tmp/x", ["Uses sudo", "Outside cwd"]);
+    const typed = bashRunConfirmationPrompt();
+
+    assert.match(simple, /Tool: bash/);
+    assert.match(simple, /Run this command once\?/);
+    assert.match(simple, /Reason: rule ask/);
+
+    assert.match(highRisk, /This command is high risk/);
+    assert.match(highRisk, /Uses sudo/);
+    assert.match(highRisk, /Outside cwd/);
+
+    assert.match(typed, /type RUN/i);
   });
 
   it("builds allow execution prompt", () => {
