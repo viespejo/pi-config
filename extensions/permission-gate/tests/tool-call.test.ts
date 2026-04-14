@@ -90,7 +90,10 @@ function makeUI(params: {
   const prompts: string[] = [];
   const selectCalls: Array<{ prompt: string; options: string[] }> = [];
   const inputCalls: Array<{ label: string; placeholder?: string }> = [];
-  const notifications: Array<{ message: string; level?: "info" | "warning" | "error" }> = [];
+  const notifications: Array<{
+    message: string;
+    level?: "info" | "warning" | "error";
+  }> = [];
   let customCalls = 0;
   let notifyCalls = 0;
 
@@ -183,7 +186,7 @@ describe("permission-gate tool_call", () => {
     process.env.HOME = home;
 
     try {
-      await writeJson(nodePath.join(home, ".pi", "settings.json"), {
+      await writeJson(nodePath.join(home, ".pi", "agent", "settings.json"), {
         permissionGate: {
           permissions: {
             deny: ["Bash(echo *)"],
@@ -286,7 +289,10 @@ describe("permission-gate tool_call", () => {
 
     assert.equal(res, undefined);
     assert.equal(ui.selectCalls.length, 1);
-    assert.deepEqual(ui.selectCalls[0]!.options, ["Run high-risk once", "Block"]);
+    assert.deepEqual(ui.selectCalls[0]!.options, [
+      "Run high-risk once",
+      "Block",
+    ]);
     assert.equal(ui.inputCalls.length, 1);
     assert.equal(ui.inputCalls[0]!.label, "Type RUN to confirm");
   });
@@ -352,7 +358,10 @@ describe("permission-gate tool_call", () => {
     const ui = makeUI({ selectAnswers: ["Run once"] });
     const res = await gate.emit(
       "tool_call",
-      { toolName: "bash", input: { command: "echo ok && git push origin main" } },
+      {
+        toolName: "bash",
+        input: { command: "echo ok && git push origin main" },
+      },
       { hasUI: true, ui: ui.ui, cwd },
     );
 
@@ -415,7 +424,10 @@ describe("permission-gate tool_call", () => {
     assert.equal(second, undefined);
     assert.equal(ui.selectCalls.length, 1);
 
-    await gate.runCommand("pgate", "clear-session", { cwd: process.cwd(), ui: ui.ui });
+    await gate.runCommand("pgate", "clear-session", {
+      cwd: process.cwd(),
+      ui: ui.ui,
+    });
 
     const third = await gate.emit(
       "tool_call",
@@ -453,7 +465,9 @@ describe("permission-gate tool_call", () => {
 
   it("keeps existing edit review-in-neovim flow unchanged", async () => {
     const gate = setupExtension();
-    const tmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-nvim-back-flow-"));
+    const tmp = await fs.mkdtemp(
+      nodePath.join(os.tmpdir(), "pg-nvim-back-flow-"),
+    );
     const ui = makeUI({
       selectAnswers: ["Review in Neovim", "Back to approval menu", "No"],
     });
@@ -478,7 +492,10 @@ describe("permission-gate tool_call", () => {
     );
 
     assert.equal(res?.block, true);
-    assert.deepEqual(ui.selectCalls[1]!.options, [REVIEW_OPTION_APPLY, REVIEW_OPTION_BACK]);
+    assert.deepEqual(ui.selectCalls[1]!.options, [
+      REVIEW_OPTION_APPLY,
+      REVIEW_OPTION_BACK,
+    ]);
   });
 
   it("blocks if no UI is available for non-auto-allowed tools", async () => {

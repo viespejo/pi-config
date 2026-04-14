@@ -7,12 +7,14 @@ A conservative approval layer for Pi tool calls, with hardened `bash` safety.
 This phase hardens `bash` execution without changing existing `edit` / `write` workflows.
 
 Implemented behavior:
+
 - Non-overridable **hard-deny** checks for catastrophic shell commands.
 - Config-driven `bash` policy from settings (`deny > ask > allow > default`).
 - **High-risk** detection with mandatory two-step confirmation (`RUN` / `run`).
 - `/pgate` operational command for status, testing, reload, and session reset.
 
 Preserved behavior:
+
 - `edit` / `write` approval loop and Neovim review flow remain unchanged.
 - Read-only tools (`read`, `ls`, `grep`, `find`) stay auto-allowed.
 - `bash` still has no "always this session" mode.
@@ -29,6 +31,7 @@ For `bash` tool calls, the extension evaluates in this order:
 4. **Default simple confirmation**
 
 Important rule interaction:
+
 - `allow` does **not** bypass high-risk protection.
 - `ask` uses simple confirmation unless the command is also high-risk.
 
@@ -37,12 +40,16 @@ Important rule interaction:
 ## Bash confirmation UX
 
 ### Simple confirmation
+
 Used for default and `ask` (non-high-risk):
+
 - `Run once`
 - `Block`
 
 ### High-risk confirmation
+
 Used whenever command is classified high-risk:
+
 1. First choice:
    - `Run high-risk once`
    - `Block`
@@ -56,6 +63,7 @@ If any high-risk step fails, the command is blocked.
 ## High-risk signals
 
 High-risk includes (non-exhaustive examples):
+
 - `sudo`
 - `curl ... | bash` / `wget ... | bash`
 - `chmod -R 777`
@@ -75,10 +83,12 @@ Hard-deny includes catastrophic patterns (e.g. destructive root deletion) and bl
 ## Config contract
 
 Settings are loaded from:
-- Global: `~/.pi/settings.json`
+
+- Global: `~/.pi/agent/settings.json`
 - Local: `<cwd>/.pi/settings.json`
 
 Read key:
+
 - `permissionGate.permissions`
 
 Example schema:
@@ -114,6 +124,7 @@ echo ok && git push origin main
 ```
 
 matching is performed per shell segment (`&&`, `||`, `;`, `|`, newline boundaries):
+
 - `deny` / `ask`: any matching segment applies
 - `allow`: matching segment can allow candidate, but high-risk checks still apply
 
@@ -122,6 +133,7 @@ matching is performed per shell segment (`&&`, `||`, `;`, `|`, newline boundarie
 ## `/pgate` command
 
 Available subcommands:
+
 - `/pgate status`
   - shows active settings source, rule counts, warnings
 - `/pgate test Bash(<command>)`

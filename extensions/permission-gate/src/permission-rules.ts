@@ -75,7 +75,9 @@ export function parseRule(raw: string): ParsedRule {
 
   const close = trimmed.lastIndexOf(")");
   if (close <= open) {
-    throw new Error(`Invalid permission rule: malformed parenthesis in \"${trimmed}\"`);
+    throw new Error(
+      `Invalid permission rule: malformed parenthesis in \"${trimmed}\"`,
+    );
   }
 
   const tool = trimmed.slice(0, open).trim();
@@ -91,13 +93,19 @@ export function parseRule(raw: string): ParsedRule {
   };
 }
 
-function parseRules(entries: unknown, warnings: string[], sourcePath: string): ParsedRule[] {
+function parseRules(
+  entries: unknown,
+  warnings: string[],
+  sourcePath: string,
+): ParsedRule[] {
   if (!Array.isArray(entries)) return [];
 
   const out: ParsedRule[] = [];
   for (const entry of entries) {
     if (typeof entry !== "string") {
-      warnings.push(`Skipping non-string rule in ${sourcePath}: ${JSON.stringify(entry)}`);
+      warnings.push(
+        `Skipping non-string rule in ${sourcePath}: ${JSON.stringify(entry)}`,
+      );
       continue;
     }
 
@@ -119,7 +127,9 @@ function parsePermissionConfig(
   if (permissionsValue == null) return EMPTY_CONFIG;
 
   if (typeof permissionsValue !== "object") {
-    warnings.push(`Invalid permissionGate.permissions in ${sourcePath}: expected object.`);
+    warnings.push(
+      `Invalid permissionGate.permissions in ${sourcePath}: expected object.`,
+    );
     return EMPTY_CONFIG;
   }
 
@@ -154,14 +164,21 @@ function getPermissionNode(raw: unknown): { exists: boolean; value: unknown } {
   return { exists: true, value: permissionGate.permissions };
 }
 
-function readJsonFile(filePath: string): { exists: boolean; data?: unknown; error?: string } {
+function readJsonFile(filePath: string): {
+  exists: boolean;
+  data?: unknown;
+  error?: string;
+} {
   if (!fs.existsSync(filePath)) return { exists: false };
 
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     return { exists: true, data: JSON.parse(raw) };
   } catch {
-    return { exists: true, error: `Could not parse settings JSON: ${filePath}` };
+    return {
+      exists: true,
+      error: `Could not parse settings JSON: ${filePath}`,
+    };
   }
 }
 
@@ -169,7 +186,7 @@ function computePermissionState(cwd: string): PermissionState {
   const warnings: string[] = [];
   const sources: PermissionSource[] = [];
 
-  const globalPath = nodePath.join(homedir(), ".pi", "settings.json");
+  const globalPath = nodePath.join(homedir(), ".pi", "agent", "settings.json");
   const localPath = nodePath.join(cwd, ".pi", "settings.json");
 
   const globalRead = readJsonFile(globalPath);
@@ -178,8 +195,12 @@ function computePermissionState(cwd: string): PermissionState {
   if (globalRead.error) warnings.push(globalRead.error);
   if (localRead.error) warnings.push(localRead.error);
 
-  const globalNode = globalRead.data ? getPermissionNode(globalRead.data) : { exists: false, value: undefined };
-  const localNode = localRead.data ? getPermissionNode(localRead.data) : { exists: false, value: undefined };
+  const globalNode = globalRead.data
+    ? getPermissionNode(globalRead.data)
+    : { exists: false, value: undefined };
+  const localNode = localRead.data
+    ? getPermissionNode(localRead.data)
+    : { exists: false, value: undefined };
 
   if (localNode.exists) {
     const config = parsePermissionConfig(localNode.value, warnings, localPath);
@@ -193,7 +214,11 @@ function computePermissionState(cwd: string): PermissionState {
   }
 
   if (globalNode.exists) {
-    const config = parsePermissionConfig(globalNode.value, warnings, globalPath);
+    const config = parsePermissionConfig(
+      globalNode.value,
+      warnings,
+      globalPath,
+    );
     sources.push({ path: globalPath, kind: "global", config });
     return {
       merged: config,
@@ -365,7 +390,10 @@ export function evaluatePermission(
 ): PermissionVerdict {
   const tool = normalizeToolName(toolName);
   if (tool !== "bash") {
-    return { action: "default", reason: "No config rule evaluation for non-bash tools." };
+    return {
+      action: "default",
+      reason: "No config rule evaluation for non-bash tools.",
+    };
   }
 
   const command = typeof input.command === "string" ? input.command : "";
@@ -440,7 +468,11 @@ export function parseTestExpression(ruleText: string): {
 }
 
 export function totalRuleCount(state: PermissionState) {
-  return state.merged.allow.length + state.merged.deny.length + state.merged.ask.length;
+  return (
+    state.merged.allow.length +
+    state.merged.deny.length +
+    state.merged.ask.length
+  );
 }
 
 export function getBashSegments(command: string) {
