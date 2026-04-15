@@ -2,14 +2,14 @@
 
 ## 0) Preconditions
 
-- [ ] Neovim config loaded with Sidekick PI tool config.
-- [ ] PI tool identity is unchanged: `cmd = { "pi" }`.
-- [ ] PI-scoped env is defined under `cli.tools.pi.env`:
-  - [ ] `EDITOR=/.../scripts/pi-editor-context`
-  - [ ] `VISUAL=/.../scripts/pi-editor-context`
-- [ ] `cli.mux.enabled = true` and `backend = "tmux"`.
-- [ ] Wrapper scripts are executable and available at configured paths.
-- [ ] Debug log path is writable:
+- [x] Neovim config loaded with Sidekick PI tool config.
+- [x] PI tool identity is unchanged: `cmd = { "pi" }`.
+- [x] PI-scoped env is defined under `cli.tools.pi.env`:
+  - [x] `EDITOR=/.../scripts/pi-editor-context`
+  - [x] `VISUAL=/.../scripts/pi-editor-context`
+- [x] `cli.mux.enabled = true` and `backend = "tmux"`.
+- [x] Wrapper scripts are executable and available at configured paths.
+- [x] Debug log path is writable:
   - `~/.local/state/pi-editor/debug.log`
 
 ---
@@ -27,10 +27,10 @@
 
 ### Expected
 
-- [ ] External editor opens normally.
-- [ ] Prompt edits are returned to PI.
-- [ ] No visible flow regression.
-- [ ] No hard failure in default mode.
+- [x] External editor opens normally.
+- [x] Prompt edits are returned to PI.
+- [x] No visible flow regression.
+- [x] No hard failure in default mode.
 
 ---
 
@@ -40,18 +40,18 @@
 
 Run each mapping at least once:
 
-- [ ] `<leader>so` (toggle)
-- [ ] `<leader>ss` (select)
-- [ ] `<leader>sd` (detach/close)
-- [ ] send actions (`<leader>st`, `<leader>sf`, `<leader>sv`)
+- [x] `<leader>so` (toggle)
+- [x] `<leader>ss` (select)
+- [x] `<leader>sd` (detach/close)
+- [x] send actions (`<leader>st`, `<leader>sf`, `<leader>sv`)
 
 Then trigger `Ctrl+G` after re-selecting PI.
 
 ### Expected
 
-- [ ] PI remains selectable/toggleable/send-capable.
-- [ ] Session control still works with tmux backend.
-- [ ] External editor integration remains functional.
+- [x] PI remains selectable/toggleable/send-capable.
+- [x] Session control still works with tmux backend.
+- [x] External editor integration remains functional.
 
 ---
 
@@ -69,21 +69,21 @@ Then trigger `Ctrl+G` after re-selecting PI.
 
 ### Expected required events
 
-- [ ] `config-resolved`
-- [ ] `session-discovery`
-- [ ] `branch-selection` (when session exists)
-- [ ] `context-built`
-- [ ] `editor-open`
-- [ ] `exported`
+- [x] `config-resolved`
+- [x] `session-discovery`
+- [x] `branch-selection` (when session exists)
+- [x] `context-built`
+- [x] `editor-open`
+- [x] `exported`
 
 ### Expected payload coverage
 
-- [ ] Config precedence/source-by-field (`env|project|user|default`)
-- [ ] Selected session path/source
-- [ ] Selected leaf id
-- [ ] Context message count + truncation stats
-- [ ] Requested/effective editor mode + wait behavior
-- [ ] Export length summary (chars/bytes)
+- [x] Config precedence/source-by-field (`env|project|user|default`)
+- [x] Selected session path/source
+- [x] Selected leaf id
+- [x] Context message count + truncation stats
+- [x] Requested/effective editor mode + wait behavior
+- [x] Export length summary (chars/bytes)
 
 ---
 
@@ -98,8 +98,8 @@ Then trigger `Ctrl+G` after re-selecting PI.
 
 ### Expected
 
-- [ ] Drift/mismatch is diagnosable from debug signals.
-- [ ] Operator can identify effective editor behavior from logs alone.
+- [x] Drift/mismatch is diagnosable from debug signals.
+- [x] Operator can identify effective editor behavior from logs alone.
 
 ---
 
@@ -107,16 +107,16 @@ Then trigger `Ctrl+G` after re-selecting PI.
 
 ### Steps
 
-1. Close existing PI session: `<leader>sd`.
+1. Close existing PI process/session (note: `<leader>sd` may only detach in some setups).
 2. Re-select PI: `<leader>ss`.
 3. Trigger `Ctrl+G` again.
 4. Re-check debug log.
 
 ### Expected
 
-- [ ] Session relaunch picks up current PI-scoped env.
-- [ ] `editor-open` and `config-resolved` reflect expected values.
-- [ ] External editor behavior is corrected after reopen cycle.
+- [x] Session relaunch picks up current PI-scoped env.
+- [x] `editor-open` and `config-resolved` reflect expected values.
+- [x] External editor behavior is corrected after reopen cycle.
 
 ---
 
@@ -130,9 +130,9 @@ Then trigger `Ctrl+G` after re-selecting PI.
 
 ### Expected
 
-- [ ] No hard stop in default soft mode.
-- [ ] User can still edit prompt (fallback path if needed).
-- [ ] Debug logging failures do not break editing flow.
+- [x] No hard stop in default soft mode.
+- [x] User can still edit prompt (fallback path if needed).
+- [x] Debug logging failures do not break editing flow.
 
 ---
 
@@ -140,18 +140,18 @@ Then trigger `Ctrl+G` after re-selecting PI.
 
 For each scenario, record:
 
-- [ ] Date/time
-- [ ] Operator
-- [ ] Command/key sequence
-- [ ] Observed behavior
-- [ ] Relevant debug log snippet
-- [ ] Pass/Fail
-- [ ] Follow-up action (if fail)
+- [x] Date/time
+- [x] Operator
+- [x] Command/key sequence
+- [x] Observed behavior
+- [x] Relevant debug log snippet
+- [x] Pass/Fail
+- [x] Follow-up action (if fail)
 
 ---
 
 ## 8) Exit Criteria
 
-- [ ] All sections 1–5 pass.
-- [ ] No blocker regressions in daily PI workflow.
-- [ ] AC-1..AC-5 behavior is demonstrated in real-world operation.
+- [x] All sections 1–5 pass.
+- [x] No blocker regressions in daily PI workflow.
+- [x] AC-1..AC-5 behavior is demonstrated in real-world operation.

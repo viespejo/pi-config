@@ -889,10 +889,16 @@ async function runEditorContext(options) {
       "utf8",
     );
 
+    await appendDebug(config.debug, "editor-open", {
+      workingPath,
+      requestedMode: config.openMode,
+      nvrWaitMode: config.nvrWaitMode,
+    });
+
     const editorDecision = await Promise.resolve(
       openEditorImpl(workingPath, config),
     );
-    await appendDebug(config.debug, "editor-open", {
+    await appendDebug(config.debug, "editor-returned", {
       workingPath,
       requestedMode: config.openMode,
       nvrWaitMode: config.nvrWaitMode,
