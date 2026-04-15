@@ -30,6 +30,8 @@ const DEFAULTS = {
   sessionsDir: "",
 };
 
+const CONFIG_KEYS = Object.keys(DEFAULTS);
+
 function toBool(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
   if (typeof value === "boolean") return value;
@@ -122,7 +124,11 @@ function pickErrorPolicy(policy) {
   return ["soft", "hard"].includes(policy) ? policy : "soft";
 }
 
-async function resolveConfig(env, cwd, overrides = {}) {
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+async function resolveConfigDetailed(env, cwd, overrides = {}) {
   const userConfigPath =
     overrides.userConfigPath ??
     path.join(os.homedir(), ".config", "pi-editor-context", "config.json");
@@ -133,6 +139,11 @@ async function resolveConfig(env, cwd, overrides = {}) {
     readJsonSafe(userConfigPath),
     readJsonSafe(projectConfigPath),
   ]);
+
+  const userLayer =
+    userConfig && typeof userConfig === "object" ? userConfig : {};
+  const projectLayer =
+    projectConfig && typeof projectConfig === "object" ? projectConfig : {};
 
   const envConfig = {
     enabled: toBool(env.PI_EDITOR_CONTEXT_ENABLED, undefined),
@@ -155,15 +166,15 @@ async function resolveConfig(env, cwd, overrides = {}) {
     sessionsDir: env.PI_EDITOR_SESSIONS_DIR,
   };
 
+  const envLayer = Object.fromEntries(
+    Object.entries(envConfig).filter(([, value]) => value !== undefined),
+  );
+
   const merged = {
     ...DEFAULTS,
-    ...(userConfig && typeof userConfig === "object" ? userConfig : {}),
-    ...(projectConfig && typeof projectConfig === "object"
-      ? projectConfig
-      : {}),
-    ...Object.fromEntries(
-      Object.entries(envConfig).filter(([, value]) => value !== undefined),
-    ),
+    ...userLayer,
+    ...projectLayer,
+    ...envLayer,
   };
 
   merged.messages = Math.max(1, toInt(merged.messages, DEFAULTS.messages));
@@ -198,21 +209,65 @@ async function resolveConfig(env, cwd, overrides = {}) {
     String(merged.errorPolicy ?? DEFAULTS.errorPolicy),
   );
 
-  return merged;
+  const sources = {};
+  for (const key of CONFIG_KEYS) {
+    if (hasOwn(envLayer, key)) {
+      sources[key] = "env";
+    } else if (hasOwn(projectLayer, key)) {
+      sources[key] = "project";
+    } else if (hasOwn(userLayer, key)) {
+      sources[key] = "user";
+    } else {
+      sources[key] = "default";
+    }
+  }
+
+  return {
+    config: merged,
+    meta: {
+      userConfigPath,
+      projectConfigPath,
+      sources,
+      layers: {
+        user: userLayer,
+        project: projectLayer,
+        env: envLayer,
+      },
+    },
+  };
+}
+
+async function resolveConfig(env, cwd, overrides = {}) {
+  const { config } = await resolveConfigDetailed(env, cwd, overrides);
+  return config;
+}
+
+function safeJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify({ note: "unserializable-payload" });
+  }
 }
 
 async function appendDebug(enabled, message, payload = undefined) {
   if (!enabled) return;
-  const debugPath = path.join(
-    os.homedir(),
-    ".local",
-    "state",
-    "pi-editor",
-    "debug.log",
-  );
-  const line = `${new Date().toISOString()} ${message}${payload ? ` ${JSON.stringify(payload)}` : ""}\n`;
-  await fs.mkdir(path.dirname(debugPath), { recursive: true });
-  await fs.appendFile(debugPath, line, "utf8");
+
+  try {
+    const debugPath = path.join(
+      os.homedir(),
+      ".local",
+      "state",
+      "pi-editor",
+      "debug.log",
+    );
+    const serialized = payload === undefined ? "" : ` ${safeJson(payload)}`;
+    const line = `${new Date().toISOString()} ${message}${serialized}\n`;
+    await fs.mkdir(path.dirname(debugPath), { recursive: true });
+    await fs.appendFile(debugPath, line, "utf8");
+  } catch {
+    // Debug logging must never break editor flow.
+  }
 }
 
 async function listJsonlFiles(rootDir) {
@@ -266,11 +321,35 @@ async function resolveSessionsRoot(config, env) {
   return path.join(os.homedir(), ".pi", "agent", "sessions");
 }
 
-async function discoverSessionFile(config, env, cwdRaw) {
-  if (config.sessionFile) return config.sessionFile;
+async function discoverSessionFileDetailed(config, env, cwdRaw) {
+  if (config.sessionFile) {
+    return {
+      sessionPath: config.sessionFile,
+      selectedSource: "config.sessionFile",
+      sessionsRoot: "",
+      cwdRaw,
+      cwdReal: cwdRaw,
+      bucketCandidates: [],
+      bucketHits: [],
+      bucketFileCount: 0,
+      globalFileCount: 0,
+    };
+  }
 
   const sessionsRoot = await resolveSessionsRoot(config, env);
-  if (!(await fileExists(sessionsRoot))) return "";
+  if (!(await fileExists(sessionsRoot))) {
+    return {
+      sessionPath: "",
+      selectedSource: "none",
+      sessionsRoot,
+      cwdRaw,
+      cwdReal: cwdRaw,
+      bucketCandidates: [],
+      bucketHits: [],
+      bucketFileCount: 0,
+      globalFileCount: 0,
+    };
+  }
 
   let cwdReal = cwdRaw;
   try {
@@ -291,20 +370,61 @@ async function discoverSessionFile(config, env, cwdRaw) {
   );
 
   const bucketFiles = [];
+  const bucketHits = [];
   for (const bucket of bucketCandidates) {
     const bucketPath = path.join(sessionsRoot, bucket);
     if (await fileExists(bucketPath)) {
-      bucketFiles.push(...(await listJsonlFiles(bucketPath)));
+      const files = await listJsonlFiles(bucketPath);
+      bucketFiles.push(...files);
+      bucketHits.push({ bucket, bucketPath, files: files.length });
     }
   }
 
   if (bucketFiles.length > 0) {
-    return newestFile(bucketFiles);
+    return {
+      sessionPath: await newestFile(bucketFiles),
+      selectedSource: "bucket",
+      sessionsRoot,
+      cwdRaw,
+      cwdReal,
+      bucketCandidates,
+      bucketHits,
+      bucketFileCount: bucketFiles.length,
+      globalFileCount: 0,
+    };
   }
 
   const globalFiles = await listJsonlFiles(sessionsRoot);
-  if (globalFiles.length === 0) return "";
-  return newestFile(globalFiles);
+  if (globalFiles.length === 0) {
+    return {
+      sessionPath: "",
+      selectedSource: "none",
+      sessionsRoot,
+      cwdRaw,
+      cwdReal,
+      bucketCandidates,
+      bucketHits,
+      bucketFileCount: 0,
+      globalFileCount: 0,
+    };
+  }
+
+  return {
+    sessionPath: await newestFile(globalFiles),
+    selectedSource: "global",
+    sessionsRoot,
+    cwdRaw,
+    cwdReal,
+    bucketCandidates,
+    bucketHits,
+    bucketFileCount: 0,
+    globalFileCount: globalFiles.length,
+  };
+}
+
+async function discoverSessionFile(config, env, cwdRaw) {
+  const details = await discoverSessionFileDetailed(config, env, cwdRaw);
+  return details.sessionPath;
 }
 
 function parseTimestampMs(value) {
@@ -412,7 +532,9 @@ function selectBranch(entries) {
   const leaves = [...idMap.values()].filter(
     (entry) => !parentRefs.has(entryId(entry)),
   );
-  if (leaves.length === 0) return { selectedLeaf: null, branchEntries: [] };
+  if (leaves.length === 0) {
+    return { selectedLeaf: null, branchEntries: [], leavesCount: 0 };
+  }
 
   leaves.sort((a, b) => {
     const ts = getEntryTimestamp(a) - getEntryTimestamp(b);
@@ -437,11 +559,29 @@ function selectBranch(entries) {
   }
 
   branchEntries.reverse();
-  return { selectedLeaf, branchEntries };
+  return { selectedLeaf, branchEntries, leavesCount: leaves.length };
 }
 
 function buildContext(branchEntries, config) {
-  if (!config.enabled) return { contextText: "", injectedCount: 0 };
+  if (!config.enabled) {
+    return {
+      contextText: "",
+      injectedCount: 0,
+      stats: {
+        enabled: false,
+        branchEntries: branchEntries.length,
+        messageEntries: 0,
+        includedByRole: 0,
+        skippedByRole: 0,
+        skippedByAge: 0,
+        skippedEmpty: 0,
+        perMessageTruncated: 0,
+        extractedMessages: 0,
+        recentWindowSize: 0,
+        maxCharsTruncated: false,
+      },
+    };
+  }
 
   const cutoff =
     config.maxAgeDays > 0
@@ -449,23 +589,50 @@ function buildContext(branchEntries, config) {
       : Number.NEGATIVE_INFINITY;
 
   const extracted = [];
+  let messageEntries = 0;
+  let includedByRole = 0;
+  let skippedByRole = 0;
+  let skippedByAge = 0;
+  let skippedEmpty = 0;
+  let perMessageTruncated = 0;
 
   for (const entry of branchEntries) {
     if (entry?.type !== "message") continue;
+    messageEntries += 1;
 
     const role = entry?.message?.role;
-    if (role !== "user" && role !== "assistant") continue;
-    if (role === "assistant" && !config.includeAssistant) continue;
+    if (role !== "user" && role !== "assistant") {
+      skippedByRole += 1;
+      continue;
+    }
+    if (role === "assistant" && !config.includeAssistant) {
+      skippedByRole += 1;
+      continue;
+    }
+    includedByRole += 1;
 
     const ts = getEntryTimestamp(entry);
-    if (ts < cutoff) continue;
+    if (ts < cutoff) {
+      skippedByAge += 1;
+      continue;
+    }
 
     const rawText = extractMessageText(entry.message, role);
-    if (!rawText) continue;
+    if (!rawText) {
+      skippedEmpty += 1;
+      continue;
+    }
 
     const sanitized = stripAnsiAndControl(normalizeEol(rawText));
+    if (sanitized.length > config.maxPerMessage) {
+      perMessageTruncated += 1;
+    }
+
     const bounded = truncate(sanitized, config.maxPerMessage).trim();
-    if (!bounded) continue;
+    if (!bounded) {
+      skippedEmpty += 1;
+      continue;
+    }
 
     const prefix = role === "user" ? "U" : "A";
     const timeTag =
@@ -481,6 +648,7 @@ function buildContext(branchEntries, config) {
   const recent = extracted.slice(-config.messages);
   const selected = [];
   let usedChars = 0;
+  let maxCharsTruncated = false;
 
   for (let i = recent.length - 1; i >= 0; i -= 1) {
     const segment = recent[i];
@@ -490,6 +658,7 @@ function buildContext(branchEntries, config) {
       continue;
     }
 
+    maxCharsTruncated = true;
     const remaining = config.maxChars - usedChars;
     if (selected.length === 0 && remaining > 1) {
       selected.unshift(`${segment.slice(0, remaining - 1)}…`);
@@ -501,6 +670,19 @@ function buildContext(branchEntries, config) {
   return {
     contextText: selected.join("\n\n"),
     injectedCount: selected.length,
+    stats: {
+      enabled: true,
+      branchEntries: branchEntries.length,
+      messageEntries,
+      includedByRole,
+      skippedByRole,
+      skippedByAge,
+      skippedEmpty,
+      perMessageTruncated,
+      extractedMessages: extracted.length,
+      recentWindowSize: recent.length,
+      maxCharsTruncated,
+    },
   };
 }
 
@@ -551,24 +733,54 @@ function openEditor(filePath, config) {
 
   if (config.openMode === "nvr") {
     runEditorCommand("nvr", nvrArgs);
-    return;
+    return {
+      requestedMode: config.openMode,
+      effectiveMode: "nvr",
+      command: "nvr",
+      waitMode: config.nvrWaitMode,
+    };
   }
 
   if (config.openMode === "nvim") {
     runEditorCommand("nvim", [filePath]);
-    return;
+    return {
+      requestedMode: config.openMode,
+      effectiveMode: "nvim",
+      command: "nvim",
+      waitMode: "process",
+    };
   }
 
   if (commandAvailable("nvr")) {
     try {
       runEditorCommand("nvr", nvrArgs);
-      return;
-    } catch {
-      // Fall through to nvim in auto mode.
+      return {
+        requestedMode: config.openMode,
+        effectiveMode: "nvr",
+        command: "nvr",
+        waitMode: config.nvrWaitMode,
+      };
+    } catch (error) {
+      runEditorCommand("nvim", [filePath]);
+      return {
+        requestedMode: config.openMode,
+        effectiveMode: "nvim",
+        command: "nvim",
+        waitMode: "process",
+        fallbackFrom: "nvr",
+        nvrError: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
   runEditorCommand("nvim", [filePath]);
+  return {
+    requestedMode: config.openMode,
+    effectiveMode: "nvim",
+    command: "nvim",
+    waitMode: "process",
+    fallbackFrom: "nvr-unavailable",
+  };
 }
 
 async function createWorkingPath(config, originalTempPath) {
@@ -587,7 +799,8 @@ async function runEditorContext(options) {
     tempFile,
     env = process.env,
     openEditorImpl = openEditor,
-    fallbackEditorImpl = (fallbackPath) => runEditorCommand("nvim", [fallbackPath]),
+    fallbackEditorImpl = (fallbackPath) =>
+      runEditorCommand("nvim", [fallbackPath]),
     configOverrides = undefined,
   } = options;
 
@@ -596,36 +809,76 @@ async function runEditorContext(options) {
   }
 
   const cwd = resolveCwd(env);
-  const config = await resolveConfig(env, cwd, configOverrides);
+  const { config, meta: configMeta } = await resolveConfigDetailed(
+    env,
+    cwd,
+    configOverrides,
+  );
 
   try {
-    await appendDebug(config.debug, "start", { tempFile, cwd, config });
+    await appendDebug(config.debug, "config-resolved", {
+      cwd,
+      config,
+      sourceByField: configMeta.sources,
+      configPaths: {
+        user: configMeta.userConfigPath,
+        project: configMeta.projectConfigPath,
+      },
+    });
 
     const originalPromptRaw = await fs.readFile(tempFile, "utf8");
     const originalPrompt = trimSingleTrailingNewline(
       normalizeEol(originalPromptRaw),
     );
 
-    const sessionPath = await discoverSessionFile(config, env, cwd);
-    await appendDebug(config.debug, "session-discovery", { sessionPath });
+    const sessionDiscovery = await discoverSessionFileDetailed(
+      config,
+      env,
+      cwd,
+    );
+    const sessionPath = sessionDiscovery.sessionPath;
+    await appendDebug(config.debug, "session-discovery", sessionDiscovery);
 
     let contextText = "";
     let selectedLeafId = "";
     let injectedCount = 0;
+    let contextStats = {
+      enabled: config.enabled,
+      branchEntries: 0,
+      messageEntries: 0,
+      includedByRole: 0,
+      skippedByRole: 0,
+      skippedByAge: 0,
+      skippedEmpty: 0,
+      perMessageTruncated: 0,
+      extractedMessages: 0,
+      recentWindowSize: 0,
+      maxCharsTruncated: false,
+    };
 
     if (sessionPath && config.enabled) {
       const entries = await parseJsonlSession(sessionPath);
-      const { selectedLeaf, branchEntries } = selectBranch(entries);
+      const { selectedLeaf, branchEntries, leavesCount } =
+        selectBranch(entries);
       selectedLeafId = entryId(selectedLeaf);
+      await appendDebug(config.debug, "branch-selection", {
+        selectedLeafId,
+        leavesCount,
+        branchEntries: branchEntries.length,
+      });
+
       const context = buildContext(branchEntries, config);
       contextText = context.contextText;
       injectedCount = context.injectedCount;
+      contextStats = context.stats;
     }
 
     await appendDebug(config.debug, "context-built", {
+      sessionPath,
       selectedLeafId,
       injectedCount,
       contextChars: contextText.length,
+      contextStats,
     });
 
     const workingPath = await createWorkingPath(config, tempFile);
@@ -636,11 +889,18 @@ async function runEditorContext(options) {
       "utf8",
     );
 
+    const editorDecision = await Promise.resolve(
+      openEditorImpl(workingPath, config),
+    );
     await appendDebug(config.debug, "editor-open", {
       workingPath,
-      openMode: config.openMode,
+      requestedMode: config.openMode,
+      nvrWaitMode: config.nvrWaitMode,
+      editorDecision: editorDecision ?? {
+        requestedMode: config.openMode,
+        effectiveMode: "custom-open-editor-impl",
+      },
     });
-    await Promise.resolve(openEditorImpl(workingPath, config));
 
     const edited = await fs.readFile(workingPath, "utf8");
     let promptOut = extractPromptFromWorkingFile(edited);
@@ -652,6 +912,11 @@ async function runEditorContext(options) {
     await fs.writeFile(tempFile, promptOut, "utf8");
     await appendDebug(config.debug, "exported", {
       outputChars: promptOut.length,
+      outputBytes: Buffer.byteLength(promptOut, "utf8"),
+      inputPromptChars: originalPrompt.length,
+      inputPromptBytes: Buffer.byteLength(originalPrompt, "utf8"),
+      contextChars: contextText.length,
+      contextBytes: Buffer.byteLength(contextText, "utf8"),
       contextExported: false,
     });
 

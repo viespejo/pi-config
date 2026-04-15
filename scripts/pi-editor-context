@@ -7,6 +7,11 @@
 #
 # PI will invoke this script with the temp file path. This launcher delegates
 # to the Node wrapper that injects local context and exports only the prompt.
+#
+# Optional diagnostics:
+#   PI_EDITOR_DEBUG=1
+# Debug log location:
+#   ~/.local/state/pi-editor/debug.log
 
 set -eu
 
