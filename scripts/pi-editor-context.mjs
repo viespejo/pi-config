@@ -725,19 +725,109 @@ function runEditorCommand(command, args) {
     throw new Error(`${command} exited with status ${child.status}`);
 }
 
-function openEditor(filePath, config) {
-  const nvrArgs =
+function listNvrServers() {
+  const probe = spawnSync("nvr", ["--serverlist"], { encoding: "utf8" });
+  if (probe.error || probe.status !== 0) return [];
+
+  return String(probe.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function readTmuxGlobalEnv(name, env = process.env) {
+  if (String(env.TMUX ?? "").trim().length === 0) return "";
+
+  const probe = spawnSync("tmux", ["show-environment", "-g", name], {
+    encoding: "utf8",
+  });
+  if (probe.error || probe.status !== 0) return "";
+
+  const line = String(probe.stdout ?? "").trim();
+  if (!line || line === `-${name}`) return "";
+
+  const prefix = `${name}=`;
+  return line.startsWith(prefix) ? line.slice(prefix.length).trim() : "";
+}
+
+function resolveNvrTargetServer(env = process.env) {
+  const availableServers = listNvrServers();
+  const availableSet = new Set(availableServers);
+
+  const rawCandidates = [
+    { value: env.PI_EDITOR_NVR_SERVER, source: "env:PI_EDITOR_NVR_SERVER" },
+    {
+      value: readTmuxGlobalEnv("PI_EDITOR_NVR_SERVER", env),
+      source: "tmux-global:PI_EDITOR_NVR_SERVER",
+    },
+    { value: env.NVIM, source: "env:NVIM" },
+    {
+      value: env.NVIM_LISTEN_ADDRESS,
+      source: "env:NVIM_LISTEN_ADDRESS",
+    },
+  ];
+
+  const candidateServers = [];
+  const seen = new Set();
+  for (const candidate of rawCandidates) {
+    const value = String(candidate.value ?? "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    candidateServers.push({ value, source: candidate.source });
+  }
+
+  const matched = candidateServers.find((entry) => availableSet.has(entry.value));
+
+  return {
+    hasTarget: Boolean(matched),
+    targetServer: matched?.value ?? "",
+    targetSource: matched?.source ?? "none",
+    availableServers,
+    candidateServers,
+  };
+}
+
+function openEditor(filePath, config, env = process.env) {
+  const nvrWaitArg =
     config.nvrWaitMode === "tab"
-      ? ["--remote-wait-tab", filePath]
-      : ["--remote-wait", filePath];
+      ? "--remote-tab-wait-silent"
+      : "--remote-wait-silent";
+  const nvrPreOpenArgs = ["-cc", "split"];
+  const nvrPostOpenCmds = ["+setlocal bufhidden=delete"];
 
   if (config.openMode === "nvr") {
+    if (!commandAvailable("nvr")) {
+      throw new Error("nvr mode requested, but nvr is not available in PATH");
+    }
+
+    const nvrResolution = resolveNvrTargetServer(env);
+    if (!nvrResolution.hasTarget) {
+      throw new Error(
+        "nvr mode requested, but no reachable target server was resolved",
+      );
+    }
+
+    const nvrArgs = [
+      "--nostart",
+      "--servername",
+      nvrResolution.targetServer,
+      ...nvrPreOpenArgs,
+      nvrWaitArg,
+      ...nvrPostOpenCmds,
+      filePath,
+    ];
     runEditorCommand("nvr", nvrArgs);
+
     return {
       requestedMode: config.openMode,
       effectiveMode: "nvr",
       command: "nvr",
       waitMode: config.nvrWaitMode,
+      nvrServerAvailable: true,
+      nvrTargetServer: nvrResolution.targetServer,
+      nvrServerSource: nvrResolution.targetSource,
+      availableServers: nvrResolution.availableServers,
+      candidateServers: nvrResolution.candidateServers,
     };
   }
 
@@ -751,7 +841,28 @@ function openEditor(filePath, config) {
     };
   }
 
-  if (commandAvailable("nvr")) {
+  const hasNvr = commandAvailable("nvr");
+  const nvrResolution = hasNvr
+    ? resolveNvrTargetServer(env)
+    : {
+        hasTarget: false,
+        targetServer: "",
+        targetSource: "none",
+        availableServers: [],
+        candidateServers: [],
+      };
+
+  if (hasNvr && nvrResolution.hasTarget) {
+    const nvrArgs = [
+      "--nostart",
+      "--servername",
+      nvrResolution.targetServer,
+      ...nvrPreOpenArgs,
+      nvrWaitArg,
+      ...nvrPostOpenCmds,
+      filePath,
+    ];
+
     try {
       runEditorCommand("nvr", nvrArgs);
       return {
@@ -759,6 +870,11 @@ function openEditor(filePath, config) {
         effectiveMode: "nvr",
         command: "nvr",
         waitMode: config.nvrWaitMode,
+        nvrServerAvailable: true,
+        nvrTargetServer: nvrResolution.targetServer,
+        nvrServerSource: nvrResolution.targetSource,
+        availableServers: nvrResolution.availableServers,
+        candidateServers: nvrResolution.candidateServers,
       };
     } catch (error) {
       runEditorCommand("nvim", [filePath]);
@@ -768,6 +884,11 @@ function openEditor(filePath, config) {
         command: "nvim",
         waitMode: "process",
         fallbackFrom: "nvr",
+        nvrServerAvailable: true,
+        nvrTargetServer: nvrResolution.targetServer,
+        nvrServerSource: nvrResolution.targetSource,
+        availableServers: nvrResolution.availableServers,
+        candidateServers: nvrResolution.candidateServers,
         nvrError: error instanceof Error ? error.message : String(error),
       };
     }
@@ -779,7 +900,12 @@ function openEditor(filePath, config) {
     effectiveMode: "nvim",
     command: "nvim",
     waitMode: "process",
-    fallbackFrom: "nvr-unavailable",
+    fallbackFrom: hasNvr ? "nvr-no-target-server" : "nvr-unavailable",
+    nvrServerAvailable: nvrResolution.hasTarget,
+    nvrTargetServer: nvrResolution.targetServer,
+    nvrServerSource: nvrResolution.targetSource,
+    availableServers: nvrResolution.availableServers,
+    candidateServers: nvrResolution.candidateServers,
   };
 }
 
