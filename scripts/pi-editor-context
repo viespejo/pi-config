@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# PI external editor launcher.
+#
+# Intended usage:
+#   EDITOR=/absolute/path/to/scripts/pi-editor-context
+#   VISUAL=/absolute/path/to/scripts/pi-editor-context
+#
+# PI will invoke this script with the temp file path. This launcher delegates
+# to the Node wrapper that injects local context and exports only the prompt.
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+exec node "$REPO_ROOT/scripts/pi-editor-context.mjs" "$@"
