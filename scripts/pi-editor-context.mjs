@@ -45,7 +45,9 @@ function toInt(value, fallback) {
 }
 
 function normalizeEol(text) {
-  return String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 }
 
 function trimSingleTrailingNewline(text) {
@@ -55,7 +57,10 @@ function trimSingleTrailingNewline(text) {
 
 function stripAnsiAndControl(text) {
   const noAnsi = text.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
-  return noAnsi.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+  return noAnsi.replace(
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
+    "",
+  );
 }
 
 function truncate(text, limit) {
@@ -117,7 +122,12 @@ function pickErrorPolicy(policy) {
 }
 
 async function resolveConfig(env, cwd) {
-  const userConfigPath = path.join(os.homedir(), ".config", "pi-editor-context", "config.json");
+  const userConfigPath = path.join(
+    os.homedir(),
+    ".config",
+    "pi-editor-context",
+    "config.json",
+  );
   const projectConfigPath = path.join(cwd, ".pi", "editor-context.json");
 
   const [userConfig, projectConfig] = await Promise.all([
@@ -129,7 +139,10 @@ async function resolveConfig(env, cwd) {
     enabled: toBool(env.PI_EDITOR_CONTEXT_ENABLED, undefined),
     messages: toInt(env.PI_EDITOR_CONTEXT_MESSAGES, undefined),
     sessionFile: env.PI_EDITOR_CONTEXT_SESSION_FILE,
-    includeAssistant: toBool(env.PI_EDITOR_CONTEXT_INCLUDE_ASSISTANT, undefined),
+    includeAssistant: toBool(
+      env.PI_EDITOR_CONTEXT_INCLUDE_ASSISTANT,
+      undefined,
+    ),
     maxChars: toInt(env.PI_EDITOR_CONTEXT_MAX_CHARS, undefined),
     maxPerMessage: toInt(env.PI_EDITOR_CONTEXT_MAX_PER_MESSAGE, undefined),
     maxAgeDays: toInt(env.PI_EDITOR_CONTEXT_MAX_AGE_DAYS, undefined),
@@ -146,31 +159,58 @@ async function resolveConfig(env, cwd) {
   const merged = {
     ...DEFAULTS,
     ...(userConfig && typeof userConfig === "object" ? userConfig : {}),
-    ...(projectConfig && typeof projectConfig === "object" ? projectConfig : {}),
-    ...Object.fromEntries(Object.entries(envConfig).filter(([, value]) => value !== undefined)),
+    ...(projectConfig && typeof projectConfig === "object"
+      ? projectConfig
+      : {}),
+    ...Object.fromEntries(
+      Object.entries(envConfig).filter(([, value]) => value !== undefined),
+    ),
   };
 
   merged.messages = Math.max(1, toInt(merged.messages, DEFAULTS.messages));
   merged.maxChars = Math.max(1, toInt(merged.maxChars, DEFAULTS.maxChars));
-  merged.maxPerMessage = Math.max(1, toInt(merged.maxPerMessage, DEFAULTS.maxPerMessage));
-  merged.maxAgeDays = Math.max(0, toInt(merged.maxAgeDays, DEFAULTS.maxAgeDays));
+  merged.maxPerMessage = Math.max(
+    1,
+    toInt(merged.maxPerMessage, DEFAULTS.maxPerMessage),
+  );
+  merged.maxAgeDays = Math.max(
+    0,
+    toInt(merged.maxAgeDays, DEFAULTS.maxAgeDays),
+  );
   merged.enabled = toBool(merged.enabled, DEFAULTS.enabled);
-  merged.includeAssistant = toBool(merged.includeAssistant, DEFAULTS.includeAssistant);
+  merged.includeAssistant = toBool(
+    merged.includeAssistant,
+    DEFAULTS.includeAssistant,
+  );
   merged.showTime = toBool(merged.showTime, DEFAULTS.showTime);
   merged.debug = toBool(merged.debug, DEFAULTS.debug);
 
   merged.openMode = pickOpenMode(String(merged.openMode ?? DEFAULTS.openMode));
-  merged.nvrWaitMode = pickWaitMode(String(merged.nvrWaitMode ?? DEFAULTS.nvrWaitMode));
-  merged.workingMode = pickWorkingMode(String(merged.workingMode ?? DEFAULTS.workingMode));
-  merged.emptyPolicy = pickEmptyPolicy(String(merged.emptyPolicy ?? DEFAULTS.emptyPolicy));
-  merged.errorPolicy = pickErrorPolicy(String(merged.errorPolicy ?? DEFAULTS.errorPolicy));
+  merged.nvrWaitMode = pickWaitMode(
+    String(merged.nvrWaitMode ?? DEFAULTS.nvrWaitMode),
+  );
+  merged.workingMode = pickWorkingMode(
+    String(merged.workingMode ?? DEFAULTS.workingMode),
+  );
+  merged.emptyPolicy = pickEmptyPolicy(
+    String(merged.emptyPolicy ?? DEFAULTS.emptyPolicy),
+  );
+  merged.errorPolicy = pickErrorPolicy(
+    String(merged.errorPolicy ?? DEFAULTS.errorPolicy),
+  );
 
   return merged;
 }
 
 async function appendDebug(enabled, message, payload = undefined) {
   if (!enabled) return;
-  const debugPath = path.join(os.homedir(), ".local", "state", "pi-editor", "debug.log");
+  const debugPath = path.join(
+    os.homedir(),
+    ".local",
+    "state",
+    "pi-editor",
+    "debug.log",
+  );
   const line = `${new Date().toISOString()} ${message}${payload ? ` ${JSON.stringify(payload)}` : ""}\n`;
   await fs.mkdir(path.dirname(debugPath), { recursive: true });
   await fs.appendFile(debugPath, line, "utf8");
@@ -221,7 +261,8 @@ async function newestFile(paths) {
 
 async function resolveSessionsRoot(config, env) {
   if (env.PI_EDITOR_SESSIONS_DIR) return env.PI_EDITOR_SESSIONS_DIR;
-  if (env.PI_CODING_AGENT_DIR) return path.join(env.PI_CODING_AGENT_DIR, "sessions");
+  if (env.PI_CODING_AGENT_DIR)
+    return path.join(env.PI_CODING_AGENT_DIR, "sessions");
   if (config.sessionsDir) return config.sessionsDir;
   return path.join(os.homedir(), ".pi", "agent", "sessions");
 }
@@ -313,7 +354,8 @@ function extractMessageText(message, role) {
 
   const visibleAssistantTypes = new Set(["text", "output_text"]);
   const visibleUserTypes = new Set(["text", "input_text", "output_text"]);
-  const visibleTypes = role === "assistant" ? visibleAssistantTypes : visibleUserTypes;
+  const visibleTypes =
+    role === "assistant" ? visibleAssistantTypes : visibleUserTypes;
 
   const chunks = [];
   for (const block of message.content) {
@@ -368,7 +410,9 @@ function selectBranch(entries) {
     if (parent) parentRefs.add(parent);
   }
 
-  const leaves = [...idMap.values()].filter((entry) => !parentRefs.has(entryId(entry)));
+  const leaves = [...idMap.values()].filter(
+    (entry) => !parentRefs.has(entryId(entry)),
+  );
   if (leaves.length === 0) return { selectedLeaf: null, branchEntries: [] };
 
   leaves.sort((a, b) => {
@@ -401,7 +445,9 @@ function buildContext(branchEntries, config) {
   if (!config.enabled) return { contextText: "", injectedCount: 0 };
 
   const cutoff =
-    config.maxAgeDays > 0 ? Date.now() - config.maxAgeDays * 24 * 60 * 60 * 1000 : Number.NEGATIVE_INFINITY;
+    config.maxAgeDays > 0
+      ? Date.now() - config.maxAgeDays * 24 * 60 * 60 * 1000
+      : Number.NEGATIVE_INFINITY;
 
   const extracted = [];
 
@@ -423,7 +469,8 @@ function buildContext(branchEntries, config) {
     if (!bounded) continue;
 
     const prefix = role === "user" ? "U" : "A";
-    const timeTag = config.showTime && ts > 0 ? ` [${new Date(ts).toISOString()}]` : "";
+    const timeTag =
+      config.showTime && ts > 0 ? ` [${new Date(ts).toISOString()}]` : "";
     const lines = bounded.split("\n");
     const formatted = [`${prefix}${timeTag}: ${lines[0]}`]
       .concat(lines.slice(1).map((line) => `   ${line}`))
@@ -483,18 +530,25 @@ function extractPromptFromWorkingFile(content) {
 }
 
 function commandAvailable(command) {
-  const probe = spawnSync("bash", ["-lc", `command -v ${command} >/dev/null 2>&1`]);
+  const probe = spawnSync("bash", [
+    "-lc",
+    `command -v ${command} >/dev/null 2>&1`,
+  ]);
   return probe.status === 0;
 }
 
 function runEditorCommand(command, args) {
   const child = spawnSync(command, args, { stdio: "inherit" });
   if (child.error) throw child.error;
-  if (child.status !== 0) throw new Error(`${command} exited with status ${child.status}`);
+  if (child.status !== 0)
+    throw new Error(`${command} exited with status ${child.status}`);
 }
 
 function openEditor(filePath, config) {
-  const nvrArgs = config.nvrWaitMode === "tab" ? ["--remote-wait-tab", filePath] : ["--remote-wait", filePath];
+  const nvrArgs =
+    config.nvrWaitMode === "tab"
+      ? ["--remote-wait-tab", filePath]
+      : ["--remote-wait", filePath];
 
   if (config.openMode === "nvr") {
     runEditorCommand("nvr", nvrArgs);
@@ -544,7 +598,9 @@ async function main() {
     await appendDebug(config.debug, "start", { tempFile, cwd, config });
 
     const originalPromptRaw = await fs.readFile(tempFile, "utf8");
-    const originalPrompt = trimSingleTrailingNewline(normalizeEol(originalPromptRaw));
+    const originalPrompt = trimSingleTrailingNewline(
+      normalizeEol(originalPromptRaw),
+    );
 
     const sessionPath = await discoverSessionFile(config, env, cwd);
     await appendDebug(config.debug, "session-discovery", { sessionPath });
@@ -570,9 +626,16 @@ async function main() {
 
     const workingPath = await createWorkingPath(config, tempFile);
     await fs.mkdir(path.dirname(workingPath), { recursive: true });
-    await fs.writeFile(workingPath, buildWorkingFile(contextText, originalPrompt), "utf8");
+    await fs.writeFile(
+      workingPath,
+      buildWorkingFile(contextText, originalPrompt),
+      "utf8",
+    );
 
-    await appendDebug(config.debug, "editor-open", { workingPath, openMode: config.openMode });
+    await appendDebug(config.debug, "editor-open", {
+      workingPath,
+      openMode: config.openMode,
+    });
     openEditor(workingPath, config);
 
     const edited = await fs.readFile(workingPath, "utf8");
@@ -597,7 +660,9 @@ async function main() {
     });
 
     if (config.errorPolicy === "hard") {
-      console.error(`[pi-editor-context] ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `[pi-editor-context] ${error instanceof Error ? error.message : String(error)}`,
+      );
       process.exit(1);
     }
 
