@@ -11,8 +11,12 @@ A PI-scoped environment injection was added under `cli.tools.pi.env`:
 
 - `EDITOR = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
 - `VISUAL = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
+- `PI_EDITOR_OPEN_MODE = "nvim"`
 
 A concise English comment was also added to clarify that this env injection is PI-only.
+
+### Why `PI_EDITOR_OPEN_MODE = "nvim"` is set
+In this workstation + Sidekick/tmux setup, `auto` mode intermittently falls back in a way that causes a visible startup jump/welcome flash. For stable UX in the PI external editor flow, PI is pinned to `nvim` in Sidekick-scoped env. This does not prevent future `nvr` usage; it is an operational choice for current reliability.
 
 ## Constraints Preserved
 - PI command identity was not changed (`cmd = { "pi" }` remains untouched).
