@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const MARKERS = {
   contextStart: "<!-- PI_CONTEXT_START -->",
@@ -121,14 +122,12 @@ function pickErrorPolicy(policy) {
   return ["soft", "hard"].includes(policy) ? policy : "soft";
 }
 
-async function resolveConfig(env, cwd) {
-  const userConfigPath = path.join(
-    os.homedir(),
-    ".config",
-    "pi-editor-context",
-    "config.json",
-  );
-  const projectConfigPath = path.join(cwd, ".pi", "editor-context.json");
+async function resolveConfig(env, cwd, overrides = {}) {
+  const userConfigPath =
+    overrides.userConfigPath ??
+    path.join(os.homedir(), ".config", "pi-editor-context", "config.json");
+  const projectConfigPath =
+    overrides.projectConfigPath ?? path.join(cwd, ".pi", "editor-context.json");
 
   const [userConfig, projectConfig] = await Promise.all([
     readJsonSafe(userConfigPath),
@@ -583,16 +582,21 @@ async function createWorkingPath(config, originalTempPath) {
   return path.join(dir, "working.md");
 }
 
-async function main() {
-  const tempFile = process.argv[2];
+async function runEditorContext(options) {
+  const {
+    tempFile,
+    env = process.env,
+    openEditorImpl = openEditor,
+    fallbackEditorImpl = (fallbackPath) => runEditorCommand("nvim", [fallbackPath]),
+    configOverrides = undefined,
+  } = options;
+
   if (!tempFile) {
-    console.error("Usage: pi-editor-context.mjs <pi-temp-file>");
-    process.exit(2);
+    throw new Error("Usage: pi-editor-context.mjs <pi-temp-file>");
   }
 
-  const env = process.env;
   const cwd = resolveCwd(env);
-  const config = await resolveConfig(env, cwd);
+  const config = await resolveConfig(env, cwd, configOverrides);
 
   try {
     await appendDebug(config.debug, "start", { tempFile, cwd, config });
@@ -636,7 +640,7 @@ async function main() {
       workingPath,
       openMode: config.openMode,
     });
-    openEditor(workingPath, config);
+    await Promise.resolve(openEditorImpl(workingPath, config));
 
     const edited = await fs.readFile(workingPath, "utf8");
     let promptOut = extractPromptFromWorkingFile(edited);
@@ -654,25 +658,74 @@ async function main() {
     if (config.workingMode === "temp") {
       await fs.rm(path.dirname(workingPath), { recursive: true, force: true });
     }
+
+    return {
+      status: "ok",
+      config,
+      selectedLeafId,
+      injectedCount,
+      contextChars: contextText.length,
+    };
   } catch (error) {
     await appendDebug(config.debug, "error", {
       message: error instanceof Error ? error.message : String(error),
     });
 
     if (config.errorPolicy === "hard") {
-      console.error(
-        `[pi-editor-context] ${error instanceof Error ? error.message : String(error)}`,
-      );
-      process.exit(1);
+      throw error;
     }
 
-    // Soft/fail-open mode: preserve existing prompt and open plain nvim editor as fallback.
     try {
-      runEditorCommand("nvim", [tempFile]);
+      await Promise.resolve(fallbackEditorImpl(tempFile, config));
     } catch {
       // Last-resort: never hard fail in soft mode.
     }
+
+    return {
+      status: "soft-recovered",
+      config,
+      selectedLeafId: "",
+      injectedCount: 0,
+      contextChars: 0,
+    };
   }
 }
 
-await main();
+async function main() {
+  const tempFile = process.argv[2];
+  if (!tempFile) {
+    console.error("Usage: pi-editor-context.mjs <pi-temp-file>");
+    process.exit(2);
+  }
+
+  try {
+    await runEditorContext({ tempFile });
+  } catch (error) {
+    console.error(
+      `[pi-editor-context] ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
+}
+
+const isMain =
+  process.argv[1] &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+
+if (isMain) {
+  await main();
+}
+
+export {
+  DEFAULTS,
+  MARKERS,
+  buildContext,
+  buildWorkingFile,
+  discoverSessionFile,
+  extractPromptFromWorkingFile,
+  extractMessageText,
+  parseJsonlSession,
+  resolveConfig,
+  runEditorContext,
+  selectBranch,
+};
