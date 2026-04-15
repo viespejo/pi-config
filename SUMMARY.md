@@ -49,3 +49,31 @@
    - Existing tmux sessions can still carry stale env until explicitly recycled; this is expected behavior and now documented.
    - `scripts/pi-editor-context` shell launcher is not covered by current Prettier parser setup; formatting remains manually maintained.
    - Repository has unrelated pre-existing ESLint warnings in `tallow-extensions/*`; they do not block this plan phase.
+
+6. **Latest Runtime Deltas (Session Handoff Addendum)**
+   - `scripts/pi-editor-context.mjs` now resolves `nvr` target server dynamically and deterministically:
+     - candidate precedence: process env `PI_EDITOR_NVR_SERVER` -> tmux global `PI_EDITOR_NVR_SERVER` -> `NVIM` -> `NVIM_LISTEN_ADDRESS`
+     - candidates are validated against `nvr --serverlist`
+     - `nvr` invocation is pinned to `--servername <resolved>` + `--nostart`
+   - `nvr` launch behavior is simplified and fixed:
+     - always opens in split (`-cc split`)
+     - always waits with `--remote-wait-silent`
+     - tab wait-mode support was removed from config and docs
+   - Editor-open UX was refined:
+     - opening view is initialized to prompt section (`PI_PROMPT_START` anchor)
+     - cursor is moved to end-of-prompt for immediate input
+     - context block includes an operator note that context is not exported and markers must not be altered
+
+7. **Quick Manual Validation for Next Session**
+   - Trigger `Ctrl+G` in Sidekick PI flow and confirm:
+     1. editor opens in split (terminal pane preserved)
+     2. no `nvr` startup noise/flicker leading to detached local instance
+     3. prompt region is focused on open; cursor is at end
+     4. `:q`/`:wq` returns control without terminal deadlock
+   - Optional debug confirmation (`PI_EDITOR_DEBUG=1`):
+     - inspect `editor-returned.editorDecision` for `effectiveMode`, `nvrTargetServer`, `nvrServerSource`, `candidateServers`, `availableServers`
+
+8. **Reference Commits (Chronological)**
+   - `be7d25a` — stabilize nvr auto-targeting and split-based editor open
+   - `1b0e347` — remove nvr tab mode and enforce split remote-wait flow
+   - `f4f0530` — refine editor open positioning and add marker safety note

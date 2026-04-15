@@ -39,7 +39,8 @@ Provide deterministic, low-friction context injection for PI external editing (`
 9. Parser strategy: Node-first implementation; optional helper behavior allowed.
 10. Failure strategy: fail-open by default.
 11. Prompt body extraction preserves leading whitespace and trims only one trailing newline.
-12. Content language in generated artifacts: English.
+12. On open, editor view is initialized to the prompt region and cursor moved to end-of-prompt for immediate editing.
+13. Content language in generated artifacts: English.
 
 ## 4. Runtime Architecture
 
@@ -64,7 +65,8 @@ Provide deterministic, low-friction context injection for PI external editing (`
    - prompt marker
    - base prompt body
 8. Wrapper opens Neovim according to open mode:
-   - nvr/nvim, buffer/tab policy configurable
+   - `nvr`: remote open against resolved target server (`--servername`) using split + `--remote-wait-silent`
+   - `nvim`: local process open fallback/explicit mode
 9. On editor close, wrapper extracts prompt region and writes to original PI temp file.
 10. Cleanup temp artifacts according to selected working mode.
 
@@ -125,6 +127,7 @@ Working file contract:
 
 ```md
 <!-- PI_CONTEXT_START -->
+Note: Context text below is not exported. Do not remove or modify PI markers, especially PI_PROMPT_START.
 
 ...context lines...
 
@@ -167,11 +170,12 @@ Precedence:
 - `PI_EDITOR_EMPTY_POLICY` (`allow|restore`, default `allow`)
 - `PI_EDITOR_ERROR_POLICY` (`soft|hard`, default `soft`)
 
-### 8.3 Path Variables
+### 8.3 Path and Server Target Variables
 
 - `PI_EDITOR_SESSIONS_DIR`
 - `PI_CODING_AGENT_DIR`
 - `PI_EDITOR_CWD_HINT`
+- `PI_EDITOR_NVR_SERVER` (optional explicit remote server target; validated against `nvr --serverlist`)
 
 ### 8.4 Debug
 
@@ -217,9 +221,10 @@ Default behavior (`soft`):
 3. Oversized messages -> per-message and global truncation applied.
 4. Prompt extraction -> context never returned to PI.
 5. Empty prompt behavior -> policy respected (`allow` / `restore`).
-6. `nvr` split + remote wait flow -> close returns control correctly.
+6. `nvr` split + `--remote-wait-silent` flow -> close returns control correctly.
 7. Sidekick launch with env injection -> PI uses wrapper.
 8. Config precedence -> env overrides project/user/defaults.
+9. Dynamic server targeting resolves to the intended Neovim server when provided via tmux/global env.
 
 ## 13. Deliverables
 
@@ -284,7 +289,7 @@ When `PI_EDITOR_DEBUG=1`, each wrapper execution should emit human-readable JSON
 - `editor-open`
   - emitted before opening the external editor; includes working path and requested mode
 - `editor-returned`
-  - emitted after the editor process returns; includes effective mode and wait behavior
+  - emitted after the editor process returns; includes effective mode and server-target decision metadata
 - `exported`
   - includes input/output/context char+byte summary
 
