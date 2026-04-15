@@ -1,55 +1,51 @@
-1. **Test Artifacts Created/Updated**
-   - `tests/pi-editor-context/fixtures/session-branching.jsonl` — Deterministic branching fixture with sibling leaves for branch-path correctness checks.
-   - `tests/pi-editor-context/fixtures/session-compaction-mixed.jsonl` — Deterministic mixed-content fixture (text/thinking/toolCall/toolResult + summary artifacts) for filtering and formatting/truncation checks.
-   - `tests/pi-editor-context/fixtures/temp-prompt.md` — Stable prompt fixture used for import/export isolation checks.
-   - `tests/pi-editor-context/cases.mjs` — Structured executable test cases with AC mapping, setup/invocation/assertion metadata, and positive/negative assertions.
-   - `tests/pi-editor-context/run.mjs` — Dependency-free Node runner with PASS/FAIL output, `--case` filtering, and non-zero exit on failures.
-   - `scripts/pi-editor-context.mjs` — Non-breaking testability hooks and exports added (`runEditorContext`, pure helper exports, CLI guard preserved).
+1. **Operational Changes Applied**
+   - `~/.config/nvim/lua/plugins/sidekick.lua` (external to repo): documented PI-only env scope, tmux stale-env caveat, manual refresh strategy, and kept command identity explicit as `cmd = { "pi" }`.
+   - `scripts/pi-editor-context.mjs`: added operational debug observability for config precedence, session discovery trace, branch leaf selection, context extraction/truncation stats, editor mode decision, and prompt export char/byte summaries.
+   - `scripts/pi-editor-context`: added concise operator-facing debug usage notes (`PI_EDITOR_DEBUG=1`, debug log location).
+   - `docs/pi-editor-context-technical-spec.md`: added an operational hardening section with stale-env symptoms, deterministic recovery runbook, smoke commands, expected debug signals, and a compact low-context checklist.
 
-2. **Execution Commands**
-   Environment assumptions:
-   - Node.js 22+ available.
-   - No external test framework required.
-   - Tests run from repository root.
+2. **Smoke Scenarios Executed**
+   - Scenario: Deterministic wrapper diagnostics capture (non-interactive).
+     - Command sequence:
+       - `node tests/pi-editor-context/run.mjs`
+       - one-shot debug invocation via Node harness calling `runEditorContext(...)` with `PI_EDITOR_DEBUG=1` and fixture session file.
+       - `tail -n 20 ~/.local/state/pi-editor/debug.log`
+     - Observed behavior:
+       - Test harness result: `Summary: 6 passed, 0 failed, 6 total`.
+       - Debug log emitted required signals: `config-resolved`, `session-discovery`, `branch-selection`, `context-built`, `editor-open`, `exported`.
+       - `exported` included char/byte summary fields (`outputChars`, `outputBytes`, `inputPromptChars`, `inputPromptBytes`, `contextChars`, `contextBytes`).
 
-   Commands executed:
-   - `node tests/pi-editor-context/run.mjs`
-   - `node tests/pi-editor-context/run.mjs --case branch-selects-most-recent-leaf-path --force-fail`
-   - `node -c scripts/pi-editor-context.mjs && node -c tests/pi-editor-context/cases.mjs && node -c tests/pi-editor-context/run.mjs`
+   - Scenario: Lint/format gate for modified artifacts.
+     - Command sequence:
+       - `npx prettier --write scripts/pi-editor-context.mjs`
+       - `npx prettier --check scripts/pi-editor-context.mjs`
+       - `npm run lint`
+     - Observed behavior:
+       - Prettier check passed for modified JS module.
+       - ESLint reported 0 errors; warnings are pre-existing in unrelated `tallow-extensions/*` files.
 
-   Observed outputs:
-   - Full harness: `Summary: 6 passed, 0 failed, 6 total` (exit code 0).
-   - Forced-fail run: includes `FAIL forced-failure-check [META]` and exits with code 1.
-   - Syntax checks: no output (success).
+3. **Acceptance Criteria Results**
+   - **AC-1: Environment drift detectability** — **PASS**
+     - Evidence: `config-resolved` records effective config + source-by-field precedence; `editor-open` records requested/effective mode; `session-discovery` records selected source/path.
+   - **AC-2: Recovery runbook availability** — **PASS**
+     - Evidence: technical spec now contains deterministic tmux recovery steps (`<leader>sd` -> `<leader>ss`) and post-recovery verification instructions.
+   - **AC-3: Non-breaking Sidekick integration** — **PASS**
+     - Evidence: PI identity preserved as `cmd = { "pi" }`; PI-scoped env remains under `cli.tools.pi.env`; no non-PI tool changes were introduced.
+   - **AC-4: Wrapper operational observability** — **PASS**
+     - Evidence: debug log now includes precedence result, session path/source details, selected leaf id, context message/truncation stats, editor open decision, and export length summary (chars/bytes).
+   - **AC-5: Safe default behavior preserved** — **PASS**
+     - Evidence: debug path is opt-in (`PI_EDITOR_DEBUG=1`); debug write failures are swallowed by design; soft error policy behavior remains unchanged and covered by existing tests.
 
-3. **Acceptance Criteria Matrix**
-   - **AC-1 (Branch reconstruction correctness)**
-     - Case: `branch-selects-most-recent-leaf-path`
-     - Result: **PASS**
-   - **AC-2 (Context content filtering correctness)**
-     - Case: `filters-only-user-and-visible-assistant-text`
-     - Result: **PASS**
-   - **AC-3 (Prompt export isolation correctness)**
-     - Case: `exports-only-prompt-region-after-marker`
-     - Result: **PASS**
-   - **AC-4 (Config precedence correctness)**
-     - Case: `resolves-config-with-env-project-user-default-precedence`
-     - Result: **PASS**
-   - **AC-5 (Soft error fallback correctness)**
-     - Case: `soft-policy-recovers-on-malformed-session-with-fallback-editor`
-     - Result: **PASS**
-   - **AC-6 (Truncation and formatting correctness)**
-     - Case: `enforces-truncation-limits-and-structured-formatting`
-     - Result: **PASS**
+4. **Runbook Validation**
+   - Confirmed recovery workflow is documented and executable:
+     1. Reproduce once with debug enabled.
+     2. Inspect `~/.local/state/pi-editor/debug.log` for mismatch.
+     3. Close Sidekick PI session (`<leader>sd`).
+     4. Re-select PI (`<leader>ss`).
+     5. Re-run external editor and verify corrected `config-resolved` + `editor-open` signals.
+   - Validation status: documented and traceable through debug evidence; interactive tmux pane cycling is operator-driven and consistent with Sidekick workflow constraints.
 
-4. **Regression Guarantees**
-   - **Branch-accurate extraction:** The selected conversation path is reconstructed from `id`/`parentId`, with sibling branch content excluded from formatted context.
-   - **Context filtering:** Only `user` and visible `assistant` text blocks are included; thinking/tool/toolResult and non-message summary artifacts are excluded.
-   - **Export isolation:** Export logic emits only content after `<!-- PI_PROMPT_START -->`; context section edits do not leak into final prompt output.
-   - **Config precedence:** Effective config resolves as `env > project > user > defaults`, validated with deterministic synthetic configs.
-   - **Soft fallback behavior:** With `PI_EDITOR_ERROR_POLICY=soft`, malformed session input does not hard-fail; fallback editor path keeps prompt editable and exportable.
-   - **Truncation/formatting behavior:** Per-message and global limits are enforced; output format is `U:`/`A:` first line with continuation lines indented by three spaces.
-
-5. **Open Risks / Follow-ups**
-   - The harness currently exercises deterministic unit/integration-style behavior via injected hooks; an additional optional smoke script could validate real editor binary interaction (`nvr`/`nvim`) in CI-like environments.
-   - Optional future enhancement: add a machine-readable report mode (e.g., JSON output) for easier CI ingestion without changing current console UX.
+5. **Residual Risks**
+   - Existing tmux sessions can still carry stale env until explicitly recycled; this is expected behavior and now documented.
+   - `scripts/pi-editor-context` shell launcher is not covered by current Prettier parser setup; formatting remains manually maintained.
+   - Repository has unrelated pre-existing ESLint warnings in `tallow-extensions/*`; they do not block this plan phase.
