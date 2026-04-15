@@ -253,7 +253,7 @@ With `cli.mux.enabled = true` and `backend = "tmux"`, an existing PI process may
    - close current session: `<leader>sd`
    - re-select PI tool: `<leader>ss`
 4. Trigger external editor again.
-5. Confirm corrected runtime signals in debug log (`config-resolved`, `editor-open`, `exported`).
+5. Confirm corrected runtime signals in debug log (`config-resolved`, `editor-open`, `editor-returned`, `exported`).
 
 This recovery is local and does not require global shell profile changes.
 
@@ -267,7 +267,7 @@ PI_EDITOR_DEBUG=1 EDITOR=/absolute/path/to/scripts/pi-editor-context VISUAL=/abs
 tail -n 50 ~/.local/state/pi-editor/debug.log
 
 # 3) Optional focused checks
-rg "config-resolved|session-discovery|branch-selection|context-built|editor-open|exported" ~/.local/state/pi-editor/debug.log
+rg "config-resolved|session-discovery|branch-selection|context-built|editor-open|editor-returned|exported" ~/.local/state/pi-editor/debug.log
 ```
 
 ### 14.5 Expected Debug Signals
@@ -283,7 +283,9 @@ When `PI_EDITOR_DEBUG=1`, each wrapper execution should emit human-readable JSON
 - `context-built`
   - includes context message counts and truncation stats
 - `editor-open`
-  - includes requested/effective mode and wait behavior
+  - emitted before opening the external editor; includes working path and requested mode
+- `editor-returned`
+  - emitted after the editor process returns; includes effective mode and wait behavior
 - `exported`
   - includes input/output/context char+byte summary
 

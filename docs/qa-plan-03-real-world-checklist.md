@@ -74,6 +74,7 @@ Then trigger `Ctrl+G` after re-selecting PI.
 - [x] `branch-selection` (when session exists)
 - [x] `context-built`
 - [x] `editor-open`
+- [x] `editor-returned`
 - [x] `exported`
 
 ### Expected payload coverage
@@ -82,7 +83,7 @@ Then trigger `Ctrl+G` after re-selecting PI.
 - [x] Selected session path/source
 - [x] Selected leaf id
 - [x] Context message count + truncation stats
-- [x] Requested/effective editor mode + wait behavior
+- [x] Requested editor mode is logged on `editor-open`; effective mode + wait behavior are logged on `editor-returned`
 - [x] Export length summary (chars/bytes)
 
 ---
@@ -115,7 +116,7 @@ Then trigger `Ctrl+G` after re-selecting PI.
 ### Expected
 
 - [x] Session relaunch picks up current PI-scoped env.
-- [x] `editor-open` and `config-resolved` reflect expected values.
+- [x] `editor-open`, `editor-returned`, and `config-resolved` reflect expected values.
 - [x] External editor behavior is corrected after reopen cycle.
 
 ---
