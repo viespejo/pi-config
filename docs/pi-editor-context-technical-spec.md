@@ -163,7 +163,6 @@ Precedence:
 ### 8.2 Editor Launch Variables
 
 - `PI_EDITOR_OPEN_MODE` (`auto|nvr|nvim`, default `auto`)
-- `PI_EDITOR_NVR_WAIT_MODE` (`buffer|tab`, default `buffer`)
 - `PI_EDITOR_WORKING_MODE` (`temp|persistent`, default `temp`)
 - `PI_EDITOR_EMPTY_POLICY` (`allow|restore`, default `allow`)
 - `PI_EDITOR_ERROR_POLICY` (`soft|hard`, default `soft`)
@@ -218,7 +217,7 @@ Default behavior (`soft`):
 3. Oversized messages -> per-message and global truncation applied.
 4. Prompt extraction -> context never returned to PI.
 5. Empty prompt behavior -> policy respected (`allow` / `restore`).
-6. `nvr` buffer and tab wait modes -> close returns control correctly.
+6. `nvr` split + remote wait flow -> close returns control correctly.
 7. Sidekick launch with env injection -> PI uses wrapper.
 8. Config precedence -> env overrides project/user/defaults.
 

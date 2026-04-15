@@ -300,10 +300,7 @@ export const testCases = [
         config.workingMode === "persistent",
         "User should override defaults when project/env are unset",
       );
-      assert(
-        config.nvrWaitMode === DEFAULTS.nvrWaitMode,
-        "Default should remain when no other source sets the field",
-      );
+
     },
   },
   {

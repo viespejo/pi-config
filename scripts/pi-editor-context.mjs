@@ -22,7 +22,6 @@ const DEFAULTS = {
   maxAgeDays: 0,
   showTime: false,
   openMode: "auto",
-  nvrWaitMode: "buffer",
   workingMode: "temp",
   emptyPolicy: "allow",
   errorPolicy: "soft",
@@ -108,10 +107,6 @@ function pickOpenMode(mode) {
   return ["auto", "nvr", "nvim"].includes(mode) ? mode : "auto";
 }
 
-function pickWaitMode(mode) {
-  return ["buffer", "tab"].includes(mode) ? mode : "buffer";
-}
-
 function pickWorkingMode(mode) {
   return ["temp", "persistent"].includes(mode) ? mode : "temp";
 }
@@ -158,7 +153,6 @@ async function resolveConfigDetailed(env, cwd, overrides = {}) {
     maxAgeDays: toInt(env.PI_EDITOR_CONTEXT_MAX_AGE_DAYS, undefined),
     showTime: toBool(env.PI_EDITOR_CONTEXT_SHOW_TIME, undefined),
     openMode: env.PI_EDITOR_OPEN_MODE,
-    nvrWaitMode: env.PI_EDITOR_NVR_WAIT_MODE,
     workingMode: env.PI_EDITOR_WORKING_MODE,
     emptyPolicy: env.PI_EDITOR_EMPTY_POLICY,
     errorPolicy: env.PI_EDITOR_ERROR_POLICY,
@@ -196,9 +190,6 @@ async function resolveConfigDetailed(env, cwd, overrides = {}) {
   merged.debug = toBool(merged.debug, DEFAULTS.debug);
 
   merged.openMode = pickOpenMode(String(merged.openMode ?? DEFAULTS.openMode));
-  merged.nvrWaitMode = pickWaitMode(
-    String(merged.nvrWaitMode ?? DEFAULTS.nvrWaitMode),
-  );
   merged.workingMode = pickWorkingMode(
     String(merged.workingMode ?? DEFAULTS.workingMode),
   );
@@ -788,10 +779,7 @@ function resolveNvrTargetServer(env = process.env) {
 }
 
 function openEditor(filePath, config, env = process.env) {
-  const nvrWaitArg =
-    config.nvrWaitMode === "tab"
-      ? "--remote-tab-wait-silent"
-      : "--remote-wait-silent";
+  const nvrWaitArg = "--remote-wait-silent";
   const nvrPreOpenArgs = ["-cc", "split"];
   const nvrPostOpenCmds = ["+setlocal bufhidden=delete"];
 
@@ -822,7 +810,7 @@ function openEditor(filePath, config, env = process.env) {
       requestedMode: config.openMode,
       effectiveMode: "nvr",
       command: "nvr",
-      waitMode: config.nvrWaitMode,
+      waitMode: "remote-wait-silent",
       nvrServerAvailable: true,
       nvrTargetServer: nvrResolution.targetServer,
       nvrServerSource: nvrResolution.targetSource,
@@ -869,7 +857,7 @@ function openEditor(filePath, config, env = process.env) {
         requestedMode: config.openMode,
         effectiveMode: "nvr",
         command: "nvr",
-        waitMode: config.nvrWaitMode,
+        waitMode: "remote-wait-silent",
         nvrServerAvailable: true,
         nvrTargetServer: nvrResolution.targetServer,
         nvrServerSource: nvrResolution.targetSource,
@@ -1018,7 +1006,7 @@ async function runEditorContext(options) {
     await appendDebug(config.debug, "editor-open", {
       workingPath,
       requestedMode: config.openMode,
-      nvrWaitMode: config.nvrWaitMode,
+      nvrWaitMode: "remote-wait-silent",
     });
 
     const editorDecision = await Promise.resolve(
@@ -1027,7 +1015,7 @@ async function runEditorContext(options) {
     await appendDebug(config.debug, "editor-returned", {
       workingPath,
       requestedMode: config.openMode,
-      nvrWaitMode: config.nvrWaitMode,
+      nvrWaitMode: "remote-wait-silent",
       editorDecision: editorDecision ?? {
         requestedMode: config.openMode,
         effectiveMode: "custom-open-editor-impl",
