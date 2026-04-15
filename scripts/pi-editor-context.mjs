@@ -680,6 +680,7 @@ function buildContext(branchEntries, config) {
 function buildWorkingFile(contextText, promptBase) {
   const parts = [
     MARKERS.contextStart,
+    "Note: Context text below is not exported. Do not remove or modify PI markers, especially PI_PROMPT_START.",
     contextText,
     MARKERS.contextEnd,
     "",
@@ -781,7 +782,12 @@ function resolveNvrTargetServer(env = process.env) {
 function openEditor(filePath, config, env = process.env) {
   const nvrWaitArg = "--remote-wait-silent";
   const nvrPreOpenArgs = ["-cc", "split"];
-  const nvrPostOpenCmds = ["+setlocal bufhidden=delete"];
+  const editorInitArgs = [
+    "-c",
+    "setlocal bufhidden=delete",
+    "-c",
+    "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); vim.cmd((l+1)..''); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); vim.api.nvim_win_set_cursor(0,{last_line,last_col})",
+  ];
 
   if (config.openMode === "nvr") {
     if (!commandAvailable("nvr")) {
@@ -801,7 +807,7 @@ function openEditor(filePath, config, env = process.env) {
       nvrResolution.targetServer,
       ...nvrPreOpenArgs,
       nvrWaitArg,
-      ...nvrPostOpenCmds,
+      ...editorInitArgs,
       filePath,
     ];
     runEditorCommand("nvr", nvrArgs);
@@ -820,7 +826,7 @@ function openEditor(filePath, config, env = process.env) {
   }
 
   if (config.openMode === "nvim") {
-    runEditorCommand("nvim", [filePath]);
+    runEditorCommand("nvim", [...editorInitArgs, filePath]);
     return {
       requestedMode: config.openMode,
       effectiveMode: "nvim",
@@ -847,7 +853,7 @@ function openEditor(filePath, config, env = process.env) {
       nvrResolution.targetServer,
       ...nvrPreOpenArgs,
       nvrWaitArg,
-      ...nvrPostOpenCmds,
+      ...editorInitArgs,
       filePath,
     ];
 
@@ -865,7 +871,7 @@ function openEditor(filePath, config, env = process.env) {
         candidateServers: nvrResolution.candidateServers,
       };
     } catch (error) {
-      runEditorCommand("nvim", [filePath]);
+      runEditorCommand("nvim", [...editorInitArgs, filePath]);
       return {
         requestedMode: config.openMode,
         effectiveMode: "nvim",
@@ -882,7 +888,7 @@ function openEditor(filePath, config, env = process.env) {
     }
   }
 
-  runEditorCommand("nvim", [filePath]);
+  runEditorCommand("nvim", [...editorInitArgs, filePath]);
   return {
     requestedMode: config.openMode,
     effectiveMode: "nvim",
