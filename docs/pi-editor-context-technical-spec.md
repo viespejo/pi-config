@@ -171,6 +171,19 @@ Precedence:
 - `PI_EDITOR_EMPTY_POLICY` (`allow|restore`, default `allow`)
 - `PI_EDITOR_ERROR_POLICY` (`soft|hard`, default `soft`)
 
+#### 8.2.1 Open Mode Semantics (`auto` vs `nvr`)
+
+| Mode | Primary behavior | If `nvr` is unavailable / no target / non-connection error | If `nvr` connection-loss (`EOFError` / `connection_lost`) |
+|---|---|---|---|
+| `auto` | Try `nvr` first (same server resolution and retry path as `nvr` mode). | Degrade to `nvim` in the editor-open path and continue. | Connection-loss retry is attempted; if still failing, soft-mode policy applies. |
+| `nvr` | Require `nvr` path as requested mode (same `nvr` resolution/open logic as `auto` pre-fallback stage). | Raise `nvr` error to workflow layer; in `soft` mode workflow may still recover via fallback `nvim`. | Workflow intentionally skips fallback open for connection-loss to avoid stranded temp editing state. |
+
+Operator guidance:
+
+- Use `auto` for day-to-day reliability (preferred default).
+- Use `nvr` when you explicitly want strict `nvr` intent/diagnostics.
+- Pair `nvr` with `PI_EDITOR_ERROR_POLICY=hard` when strict failure semantics are required.
+
 ### 8.3 Path and Server Target Variables
 
 - `PI_EDITOR_SESSIONS_DIR`
@@ -210,6 +223,7 @@ Default behavior (`soft`):
 - If `nvr` fails with connection-loss (`EOFError` / `connection_lost`), skip temp-file fallback editor open to avoid stranded PI temp editing state.
 - If fallback editor is required for other errors, prefer `working.md` (context-preserving) and export prompt-only afterward.
 - `nvim` fallback uses the same editor-open implementation path as normal `nvim` mode (forced mode override), avoiding divergent behavior between primary open and soft fallback.
+- User-visible implication: `auto` and `nvr` can look similar in many `soft` recoverable failures (both may end in `nvim`), but they are not equivalent in intent, routing metadata, and connection-loss handling.
 
 `hard` mode:
 

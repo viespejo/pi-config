@@ -49,6 +49,16 @@ luac -p /home/its32ve1/.config/nvim/lua/plugins/sidekick.lua
 
 Result: `OK`
 
+## Open Mode Guidance (`PI_EDITOR_OPEN_MODE`)
+
+For day-to-day operator usage:
+
+- Prefer `auto` for reliability (`nvr` first, then safe degrade to `nvim` when needed).
+- Use `nvr` when strict remote-open intent or routing diagnostics are required.
+- If strict failure semantics are desired (no soft recovery), pair `nvr` with `PI_EDITOR_ERROR_POLICY=hard`.
+
+Note: in default `soft` error policy, `auto` and `nvr` may look similar in recoverable failures because both can end in `nvim` after recovery paths.
+
 ## Operational Note
 
 Because this change is outside repo scope, rollback must be done directly in the external file.
