@@ -710,11 +710,23 @@ function commandAvailable(command) {
   return probe.status === 0;
 }
 
-function runEditorCommand(command, args) {
-  const child = spawnSync(command, args, { stdio: "inherit" });
+function runEditorCommand(command, args, options = {}) {
+  const { captureOutput = false } = options;
+  const child = captureOutput
+    ? spawnSync(command, args, { encoding: "utf8" })
+    : spawnSync(command, args, { stdio: "inherit", encoding: "utf8" });
+
   if (child.error) throw child.error;
-  if (child.status !== 0)
-    throw new Error(`${command} exited with status ${child.status}`);
+
+  if (child.status !== 0) {
+    const details = [];
+    const stderr = String(child.stderr ?? "").trim();
+    const stdout = String(child.stdout ?? "").trim();
+    if (stderr) details.push(`stderr=${stderr}`);
+    if (stdout) details.push(`stdout=${stdout}`);
+    const suffix = details.length > 0 ? ` (${details.join(" | ")})` : "";
+    throw new Error(`${command} exited with status ${child.status}${suffix}`);
+  }
 }
 
 function listNvrServers() {
@@ -727,30 +739,75 @@ function listNvrServers() {
     .filter(Boolean);
 }
 
-function readTmuxGlobalEnv(name, env = process.env) {
-  if (String(env.TMUX ?? "").trim().length === 0) return "";
+function readTmuxPaneOption(ownerPane, optionName, env = process.env) {
+  if (!ownerPane) {
+    return {
+      value: "",
+      status: "owner-pane-missing",
+      detail: "PI_EDITOR_OWNER_PANE is empty",
+    };
+  }
 
-  const probe = spawnSync("tmux", ["show-environment", "-g", name], {
-    encoding: "utf8",
-  });
-  if (probe.error || probe.status !== 0) return "";
+  if (!commandAvailable("tmux")) {
+    return {
+      value: "",
+      status: "tmux-unavailable",
+      detail: "tmux is not available in PATH",
+    };
+  }
 
-  const line = String(probe.stdout ?? "").trim();
-  if (!line || line === `-${name}`) return "";
+  if (String(env.TMUX ?? "").trim().length === 0) {
+    return {
+      value: "",
+      status: "tmux-client-unavailable",
+      detail: "TMUX environment is missing for pane option query",
+    };
+  }
 
-  const prefix = `${name}=`;
-  return line.startsWith(prefix) ? line.slice(prefix.length).trim() : "";
+  const probe = spawnSync(
+    "tmux",
+    ["show-options", "-p", "-v", "-t", ownerPane, optionName],
+    { encoding: "utf8" },
+  );
+
+  if (probe.error || probe.status !== 0) {
+    return {
+      value: "",
+      status: "pane-option-read-failed",
+      detail: String(
+        probe.stderr ?? probe.error?.message ?? "unknown error",
+      ).trim(),
+    };
+  }
+
+  const value = String(probe.stdout ?? "").trim();
+  if (!value) {
+    return {
+      value: "",
+      status: "pane-option-empty",
+      detail: `${optionName} is empty for pane ${ownerPane}`,
+    };
+  }
+
+  return {
+    value,
+    status: "ok",
+    detail: "resolved from tmux pane option",
+  };
 }
 
 function resolveNvrTargetServer(env = process.env) {
   const availableServers = listNvrServers();
   const availableSet = new Set(availableServers);
 
+  const ownerPane = String(env.PI_EDITOR_OWNER_PANE ?? "").trim();
+  const paneOptionName = "@pi_editor_nvr_server";
+  const paneLookup = readTmuxPaneOption(ownerPane, paneOptionName, env);
+
   const rawCandidates = [
-    { value: env.PI_EDITOR_NVR_SERVER, source: "env:PI_EDITOR_NVR_SERVER" },
     {
-      value: readTmuxGlobalEnv("PI_EDITOR_NVR_SERVER", env),
-      source: "tmux-global:PI_EDITOR_NVR_SERVER",
+      value: paneLookup.value,
+      source: `tmux-pane-option:${paneOptionName}`,
     },
     { value: env.NVIM, source: "env:NVIM" },
     {
@@ -768,7 +825,9 @@ function resolveNvrTargetServer(env = process.env) {
     candidateServers.push({ value, source: candidate.source });
   }
 
-  const matched = candidateServers.find((entry) => availableSet.has(entry.value));
+  const matched = candidateServers.find((entry) =>
+    availableSet.has(entry.value),
+  );
 
   return {
     hasTarget: Boolean(matched),
@@ -776,7 +835,37 @@ function resolveNvrTargetServer(env = process.env) {
     targetSource: matched?.source ?? "none",
     availableServers,
     candidateServers,
+    ownerPane,
+    paneOptionName,
+    paneOptionStatus: paneLookup.status,
+    paneOptionDetail: paneLookup.detail,
+    paneOptionValue: paneLookup.value,
   };
+}
+
+function isNvrConnectionLostError(error) {
+  const message = String(
+    error instanceof Error ? error.message : error,
+  ).toLowerCase();
+  return message.includes("connection_lost") || message.includes("eoferror");
+}
+
+function makeNvrArgs(
+  targetServer,
+  nvrPreOpenArgs,
+  nvrWaitArg,
+  editorInitArgs,
+  filePath,
+) {
+  return [
+    "--nostart",
+    "--servername",
+    targetServer,
+    ...nvrPreOpenArgs,
+    nvrWaitArg,
+    ...editorInitArgs,
+    filePath,
+  ];
 }
 
 function openEditor(filePath, config, env = process.env) {
@@ -801,16 +890,78 @@ function openEditor(filePath, config, env = process.env) {
       );
     }
 
-    const nvrArgs = [
-      "--nostart",
-      "--servername",
+    const nvrArgs = makeNvrArgs(
       nvrResolution.targetServer,
-      ...nvrPreOpenArgs,
+      nvrPreOpenArgs,
       nvrWaitArg,
-      ...editorInitArgs,
+      editorInitArgs,
       filePath,
-    ];
-    runEditorCommand("nvr", nvrArgs);
+    );
+
+    try {
+      runEditorCommand("nvr", nvrArgs, { captureOutput: true });
+
+      return {
+        requestedMode: config.openMode,
+        effectiveMode: "nvr",
+        command: "nvr",
+        waitMode: "remote-wait-silent",
+        nvrServerAvailable: true,
+        nvrTargetServer: nvrResolution.targetServer,
+        nvrServerSource: nvrResolution.targetSource,
+        availableServers: nvrResolution.availableServers,
+        candidateServers: nvrResolution.candidateServers,
+        ownerPane: nvrResolution.ownerPane,
+        paneOptionName: nvrResolution.paneOptionName,
+        paneOptionStatus: nvrResolution.paneOptionStatus,
+        paneOptionDetail: nvrResolution.paneOptionDetail,
+      };
+    } catch (firstError) {
+      if (!isNvrConnectionLostError(firstError)) {
+        throw firstError;
+      }
+
+      const retryResolution = resolveNvrTargetServer(env);
+      if (!retryResolution.hasTarget) {
+        throw firstError;
+      }
+
+      const retryArgs = makeNvrArgs(
+        retryResolution.targetServer,
+        nvrPreOpenArgs,
+        nvrWaitArg,
+        editorInitArgs,
+        filePath,
+      );
+
+      runEditorCommand("nvr", retryArgs, { captureOutput: true });
+
+      return {
+        requestedMode: config.openMode,
+        effectiveMode: "nvr",
+        command: "nvr",
+        waitMode: "remote-wait-silent",
+        nvrServerAvailable: true,
+        nvrTargetServer: retryResolution.targetServer,
+        nvrServerSource: retryResolution.targetSource,
+        availableServers: retryResolution.availableServers,
+        candidateServers: retryResolution.candidateServers,
+        ownerPane: retryResolution.ownerPane,
+        paneOptionName: retryResolution.paneOptionName,
+        paneOptionStatus: retryResolution.paneOptionStatus,
+        paneOptionDetail: retryResolution.paneOptionDetail,
+        nvrRetry: {
+          attempted: true,
+          reason: "connection-lost",
+          firstError:
+            firstError instanceof Error
+              ? firstError.message
+              : String(firstError),
+          targetChanged:
+            retryResolution.targetServer !== nvrResolution.targetServer,
+        },
+      };
+    }
 
     return {
       requestedMode: config.openMode,
@@ -822,6 +973,10 @@ function openEditor(filePath, config, env = process.env) {
       nvrServerSource: nvrResolution.targetSource,
       availableServers: nvrResolution.availableServers,
       candidateServers: nvrResolution.candidateServers,
+      ownerPane: nvrResolution.ownerPane,
+      paneOptionName: nvrResolution.paneOptionName,
+      paneOptionStatus: nvrResolution.paneOptionStatus,
+      paneOptionDetail: nvrResolution.paneOptionDetail,
     };
   }
 
@@ -844,21 +999,23 @@ function openEditor(filePath, config, env = process.env) {
         targetSource: "none",
         availableServers: [],
         candidateServers: [],
+        ownerPane: String(env.PI_EDITOR_OWNER_PANE ?? "").trim(),
+        paneOptionName: "@pi_editor_nvr_server",
+        paneOptionStatus: "nvr-unavailable",
+        paneOptionDetail: "nvr command is not available",
       };
 
   if (hasNvr && nvrResolution.hasTarget) {
-    const nvrArgs = [
-      "--nostart",
-      "--servername",
+    const nvrArgs = makeNvrArgs(
       nvrResolution.targetServer,
-      ...nvrPreOpenArgs,
+      nvrPreOpenArgs,
       nvrWaitArg,
-      ...editorInitArgs,
+      editorInitArgs,
       filePath,
-    ];
+    );
 
     try {
-      runEditorCommand("nvr", nvrArgs);
+      runEditorCommand("nvr", nvrArgs, { captureOutput: true });
       return {
         requestedMode: config.openMode,
         effectiveMode: "nvr",
@@ -869,8 +1026,54 @@ function openEditor(filePath, config, env = process.env) {
         nvrServerSource: nvrResolution.targetSource,
         availableServers: nvrResolution.availableServers,
         candidateServers: nvrResolution.candidateServers,
+        ownerPane: nvrResolution.ownerPane,
+        paneOptionName: nvrResolution.paneOptionName,
+        paneOptionStatus: nvrResolution.paneOptionStatus,
+        paneOptionDetail: nvrResolution.paneOptionDetail,
       };
     } catch (error) {
+      if (isNvrConnectionLostError(error)) {
+        const retryResolution = resolveNvrTargetServer(env);
+        if (retryResolution.hasTarget) {
+          const retryArgs = makeNvrArgs(
+            retryResolution.targetServer,
+            nvrPreOpenArgs,
+            nvrWaitArg,
+            editorInitArgs,
+            filePath,
+          );
+
+          try {
+            runEditorCommand("nvr", retryArgs, { captureOutput: true });
+            return {
+              requestedMode: config.openMode,
+              effectiveMode: "nvr",
+              command: "nvr",
+              waitMode: "remote-wait-silent",
+              nvrServerAvailable: true,
+              nvrTargetServer: retryResolution.targetServer,
+              nvrServerSource: retryResolution.targetSource,
+              availableServers: retryResolution.availableServers,
+              candidateServers: retryResolution.candidateServers,
+              ownerPane: retryResolution.ownerPane,
+              paneOptionName: retryResolution.paneOptionName,
+              paneOptionStatus: retryResolution.paneOptionStatus,
+              paneOptionDetail: retryResolution.paneOptionDetail,
+              nvrRetry: {
+                attempted: true,
+                reason: "connection-lost",
+                firstError:
+                  error instanceof Error ? error.message : String(error),
+                targetChanged:
+                  retryResolution.targetServer !== nvrResolution.targetServer,
+              },
+            };
+          } catch {
+            // Fall through to nvim fallback with original error context.
+          }
+        }
+      }
+
       runEditorCommand("nvim", [...editorInitArgs, filePath]);
       return {
         requestedMode: config.openMode,
@@ -883,6 +1086,10 @@ function openEditor(filePath, config, env = process.env) {
         nvrServerSource: nvrResolution.targetSource,
         availableServers: nvrResolution.availableServers,
         candidateServers: nvrResolution.candidateServers,
+        ownerPane: nvrResolution.ownerPane,
+        paneOptionName: nvrResolution.paneOptionName,
+        paneOptionStatus: nvrResolution.paneOptionStatus,
+        paneOptionDetail: nvrResolution.paneOptionDetail,
         nvrError: error instanceof Error ? error.message : String(error),
       };
     }
@@ -900,6 +1107,10 @@ function openEditor(filePath, config, env = process.env) {
     nvrServerSource: nvrResolution.targetSource,
     availableServers: nvrResolution.availableServers,
     candidateServers: nvrResolution.candidateServers,
+    ownerPane: nvrResolution.ownerPane,
+    paneOptionName: nvrResolution.paneOptionName,
+    paneOptionStatus: nvrResolution.paneOptionStatus,
+    paneOptionDetail: nvrResolution.paneOptionDetail,
   };
 }
 
@@ -935,6 +1146,9 @@ async function runEditorContext(options) {
     configOverrides,
   );
 
+  let originalPrompt = "";
+  let workingPath = "";
+
   try {
     await appendDebug(config.debug, "config-resolved", {
       cwd,
@@ -947,9 +1161,7 @@ async function runEditorContext(options) {
     });
 
     const originalPromptRaw = await fs.readFile(tempFile, "utf8");
-    const originalPrompt = trimSingleTrailingNewline(
-      normalizeEol(originalPromptRaw),
-    );
+    originalPrompt = trimSingleTrailingNewline(normalizeEol(originalPromptRaw));
 
     const sessionDiscovery = await discoverSessionFileDetailed(
       config,
@@ -1001,7 +1213,7 @@ async function runEditorContext(options) {
       contextStats,
     });
 
-    const workingPath = await createWorkingPath(config, tempFile);
+    workingPath = await createWorkingPath(config, tempFile);
     await fs.mkdir(path.dirname(workingPath), { recursive: true });
     await fs.writeFile(
       workingPath,
@@ -1066,10 +1278,58 @@ async function runEditorContext(options) {
       throw error;
     }
 
-    try {
-      await Promise.resolve(fallbackEditorImpl(tempFile, config));
-    } catch {
-      // Last-resort: never hard fail in soft mode.
+    const skipFallbackForConnectionLoss = isNvrConnectionLostError(error);
+
+    if (skipFallbackForConnectionLoss) {
+      await appendDebug(config.debug, "soft-skip-fallback", {
+        reason: "nvr-connection-lost",
+        action: "skip-fallback-editor-open",
+      });
+    } else {
+      const hasWorkingPath =
+        typeof workingPath === "string" &&
+        workingPath.length > 0 &&
+        (await fileExists(workingPath));
+      const fallbackPath = hasWorkingPath ? workingPath : tempFile;
+
+      await appendDebug(config.debug, "fallback-editor-open", {
+        fallbackPath,
+        fallbackType: hasWorkingPath ? "working-file" : "pi-temp-file",
+      });
+
+      try {
+        await Promise.resolve(fallbackEditorImpl(fallbackPath, config));
+
+        if (hasWorkingPath) {
+          const edited = await fs.readFile(workingPath, "utf8");
+          let promptOut = extractPromptFromWorkingFile(edited);
+
+          if (
+            config.emptyPolicy === "restore" &&
+            promptOut.trim().length === 0
+          ) {
+            promptOut = originalPrompt;
+          }
+
+          await fs.writeFile(tempFile, promptOut, "utf8");
+          await appendDebug(config.debug, "exported-fallback", {
+            outputChars: promptOut.length,
+            outputBytes: Buffer.byteLength(promptOut, "utf8"),
+            inputPromptChars: originalPrompt.length,
+            inputPromptBytes: Buffer.byteLength(originalPrompt, "utf8"),
+            contextExported: false,
+          });
+
+          if (config.workingMode === "temp") {
+            await fs.rm(path.dirname(workingPath), {
+              recursive: true,
+              force: true,
+            });
+          }
+        }
+      } catch {
+        // Last-resort: never hard fail in soft mode.
+      }
     }
 
     return {

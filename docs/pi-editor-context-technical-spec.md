@@ -127,6 +127,7 @@ Working file contract:
 
 ```md
 <!-- PI_CONTEXT_START -->
+
 Note: Context text below is not exported. Do not remove or modify PI markers, especially PI_PROMPT_START.
 
 ...context lines...
@@ -175,7 +176,8 @@ Precedence:
 - `PI_EDITOR_SESSIONS_DIR`
 - `PI_CODING_AGENT_DIR`
 - `PI_EDITOR_CWD_HINT`
-- `PI_EDITOR_NVR_SERVER` (optional explicit remote server target; validated against `nvr --serverlist`)
+- `PI_EDITOR_OWNER_PANE` (tmux pane id that owns the PI session; used to resolve pane-local Neovim RPC target)
+- tmux pane option `@pi_editor_nvr_server` (published by Neovim on the owner pane; validated against `nvr --serverlist`)
 
 ### 8.4 Debug
 
@@ -224,7 +226,7 @@ Default behavior (`soft`):
 6. `nvr` split + `--remote-wait-silent` flow -> close returns control correctly.
 7. Sidekick launch with env injection -> PI uses wrapper.
 8. Config precedence -> env overrides project/user/defaults.
-9. Dynamic server targeting resolves to the intended Neovim server when provided via tmux/global env.
+9. Dynamic server targeting resolves to the intended Neovim server from tmux pane-local option `@pi_editor_nvr_server` (owner pane), with `NVIM` and `NVIM_LISTEN_ADDRESS` fallbacks.
 
 ## 13. Deliverables
 
