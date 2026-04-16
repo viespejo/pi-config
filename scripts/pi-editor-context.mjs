@@ -964,7 +964,7 @@ function makeNvrArgs(
   targetServer,
   nvrPreOpenArgs,
   nvrWaitArg,
-  editorInitArgs,
+  nvrRemoteCommands,
   filePath,
 ) {
   return [
@@ -973,7 +973,7 @@ function makeNvrArgs(
     targetServer,
     ...nvrPreOpenArgs,
     nvrWaitArg,
-    ...editorInitArgs,
+    ...nvrRemoteCommands,
     filePath,
   ];
 }
@@ -986,8 +986,14 @@ async function resolveNvrTargetServerWithRetry(
   env = process.env,
   options = {},
 ) {
-  const attempts = Math.max(1, Number(options.attempts ?? 3));
+  const requestedAttempts = Math.max(1, Number(options.attempts ?? 3));
   const delayMs = Math.max(0, Number(options.delayMs ?? 250));
+
+  const hasTmuxRoutingContext =
+    String(env.TMUX ?? "").trim().length > 0 ||
+    String(env.PI_EDITOR_OWNER_PANE ?? "").trim().length > 0;
+
+  const attempts = hasTmuxRoutingContext ? requestedAttempts : 1;
 
   let last = resolveNvrTargetServer(env);
   for (let i = 1; i < attempts; i += 1) {
@@ -1004,12 +1010,10 @@ async function resolveNvrTargetServerWithRetry(
 async function openEditor(filePath, config, env = process.env) {
   const nvrWaitArg = "--remote-wait-silent";
   const nvrPreOpenArgs = ["-cc", "split"];
-  const editorInitArgs = [
-    "-c",
-    "setlocal bufhidden=delete",
-    "-c",
-    "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); vim.cmd((l+1)..''); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); vim.api.nvim_win_set_cursor(0,{last_line,last_col})",
-  ];
+  const foldLuaCmd =
+    "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); pcall(vim.api.nvim_win_set_cursor,0,{l+1,0}); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); pcall(vim.api.nvim_win_set_cursor,0,{last_line,last_col})";
+  const nvrRemoteCommands = ["+setlocal bufhidden=delete", `+${foldLuaCmd}`];
+  const nvimInitArgs = ["-c", "setlocal bufhidden=delete", "-c", foldLuaCmd];
 
   if (config.openMode === "nvr") {
     if (!commandAvailable("nvr")) {
@@ -1030,7 +1034,7 @@ async function openEditor(filePath, config, env = process.env) {
       nvrResolution.targetServer,
       nvrPreOpenArgs,
       nvrWaitArg,
-      editorInitArgs,
+      nvrRemoteCommands,
       filePath,
     );
 
@@ -1069,7 +1073,7 @@ async function openEditor(filePath, config, env = process.env) {
         retryResolution.targetServer,
         nvrPreOpenArgs,
         nvrWaitArg,
-        editorInitArgs,
+        nvrRemoteCommands,
         filePath,
       );
 
@@ -1104,7 +1108,7 @@ async function openEditor(filePath, config, env = process.env) {
   }
 
   if (config.openMode === "nvim") {
-    runEditorCommand("nvim", [...editorInitArgs, filePath]);
+    runEditorCommand("nvim", [...nvimInitArgs, filePath]);
     return {
       requestedMode: config.openMode,
       effectiveMode: "nvim",
@@ -1136,7 +1140,7 @@ async function openEditor(filePath, config, env = process.env) {
       nvrResolution.targetServer,
       nvrPreOpenArgs,
       nvrWaitArg,
-      editorInitArgs,
+      nvrRemoteCommands,
       filePath,
     );
 
@@ -1168,7 +1172,7 @@ async function openEditor(filePath, config, env = process.env) {
             retryResolution.targetServer,
             nvrPreOpenArgs,
             nvrWaitArg,
-            editorInitArgs,
+            nvrRemoteCommands,
             filePath,
           );
 
@@ -1203,7 +1207,7 @@ async function openEditor(filePath, config, env = process.env) {
         }
       }
 
-      runEditorCommand("nvim", [...editorInitArgs, filePath]);
+      runEditorCommand("nvim", [...nvimInitArgs, filePath]);
       return {
         requestedMode: config.openMode,
         effectiveMode: "nvim",
@@ -1224,7 +1228,7 @@ async function openEditor(filePath, config, env = process.env) {
     }
   }
 
-  runEditorCommand("nvim", [...editorInitArgs, filePath]);
+  runEditorCommand("nvim", [...nvimInitArgs, filePath]);
   return {
     requestedMode: config.openMode,
     effectiveMode: "nvim",
@@ -1259,8 +1263,12 @@ async function runEditorContext(options) {
     tempFile,
     env = process.env,
     openEditorImpl = openEditor,
-    fallbackEditorImpl = (fallbackPath) =>
-      runEditorCommand("nvim", [fallbackPath]),
+    fallbackEditorImpl = (fallbackPath, fallbackConfig, fallbackEnv) =>
+      openEditorImpl(
+        fallbackPath,
+        { ...fallbackConfig, openMode: "nvim" },
+        fallbackEnv,
+      ),
     configOverrides = undefined,
   } = options;
 
@@ -1277,6 +1285,7 @@ async function runEditorContext(options) {
 
   let originalPrompt = "";
   let workingPath = "";
+  let contextText = "";
 
   try {
     await appendDebug(config.debug, "config-resolved", {
@@ -1300,7 +1309,6 @@ async function runEditorContext(options) {
     const sessionPath = sessionDiscovery.sessionPath;
     await appendDebug(config.debug, "session-discovery", sessionDiscovery);
 
-    let contextText = "";
     let selectedLeafId = "";
     let injectedCount = 0;
     let contextStats = {
@@ -1415,10 +1423,28 @@ async function runEditorContext(options) {
         action: "skip-fallback-editor-open",
       });
     } else {
-      const hasWorkingPath =
+      let hasWorkingPath =
         typeof workingPath === "string" &&
         workingPath.length > 0 &&
         (await fileExists(workingPath));
+
+      if (!hasWorkingPath) {
+        try {
+          if (!workingPath) {
+            workingPath = await createWorkingPath(config, tempFile);
+          }
+          await fs.mkdir(path.dirname(workingPath), { recursive: true });
+          await fs.writeFile(
+            workingPath,
+            buildWorkingFile(contextText, originalPrompt),
+            "utf8",
+          );
+          hasWorkingPath = true;
+        } catch {
+          // Keep temp-file fallback path if working-file recreation fails.
+        }
+      }
+
       const fallbackPath = hasWorkingPath ? workingPath : tempFile;
 
       await appendDebug(config.debug, "fallback-editor-open", {
@@ -1427,7 +1453,7 @@ async function runEditorContext(options) {
       });
 
       try {
-        await Promise.resolve(fallbackEditorImpl(fallbackPath, config));
+        await Promise.resolve(fallbackEditorImpl(fallbackPath, config, env));
 
         if (hasWorkingPath) {
           const edited = await fs.readFile(workingPath, "utf8");

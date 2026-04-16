@@ -15,7 +15,20 @@
 
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_PATH="$0"
+if command -v realpath >/dev/null 2>&1; then
+  SCRIPT_PATH=$(realpath -- "$SCRIPT_PATH")
+elif command -v readlink >/dev/null 2>&1; then
+  LINK_TARGET=$(readlink -- "$SCRIPT_PATH" 2>/dev/null || true)
+  if [ -n "${LINK_TARGET:-}" ]; then
+    case "$LINK_TARGET" in
+      /*) SCRIPT_PATH="$LINK_TARGET" ;;
+      *) SCRIPT_PATH="$(dirname -- "$SCRIPT_PATH")/$LINK_TARGET" ;;
+    esac
+  fi
+fi
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
 exec node "$REPO_ROOT/scripts/pi-editor-context.mjs" "$@"

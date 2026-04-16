@@ -47,7 +47,7 @@ Provide deterministic, low-friction context injection for PI external editing (`
 ### 4.1 Entry Points
 
 - `scripts/pi-editor-context.mjs` (main orchestrator)
-- `scripts/pi-editor-context` (launcher wrapper)
+- `scripts/pi-editor-context` (launcher wrapper; resolves symlinks before repo-root detection)
 - Optional user-level shim:
   - `~/.local/bin/pi-editor-context` -> calls repo wrapper or Node script
 
@@ -209,6 +209,7 @@ Default behavior (`soft`):
 - Preserve original temp file when recoverable.
 - If `nvr` fails with connection-loss (`EOFError` / `connection_lost`), skip temp-file fallback editor open to avoid stranded PI temp editing state.
 - If fallback editor is required for other errors, prefer `working.md` (context-preserving) and export prompt-only afterward.
+- `nvim` fallback uses the same editor-open implementation path as normal `nvim` mode (forced mode override), avoiding divergent behavior between primary open and soft fallback.
 
 `hard` mode:
 

@@ -77,3 +77,14 @@
    - `be7d25a` — stabilize nvr auto-targeting and split-based editor open
    - `1b0e347` — remove nvr tab mode and enforce split remote-wait flow
    - `f4f0530` — refine editor open positioning and add marker safety note
+
+9. **Latest Stabilization Addendum (2026-04-16)**
+   - Confirmed root cause of non-tmux recovery failures: unstable owner identity (`pid:*`) surviving in PI env while Neovim restarted with a new PID.
+   - Outside tmux owner identity was stabilized in external Neovim config:
+     - `tmux-pane:*` when available,
+     - else `tty:*`,
+     - else `cwd:<sha256(realpath(cwd))>`.
+   - `scripts/pi-editor-context.mjs` now accepts compatible owner-key formats when reading state files (`pid:1234` and `1234`) to avoid legacy/session-format mismatches.
+   - Fallback behavior was unified: when soft fallback needs `nvim`, it now reuses the same `openEditor(...)` path (forced `openMode: "nvim"`) instead of a separate bare `nvim <file>` path, preserving the same buffer init/folding behavior.
+   - Launcher hardening: `scripts/pi-editor-context` resolves symlinks before computing repo root, so `EDITOR=pi-editor-context` works correctly when invoked via `~/bin/pi-editor-context` symlink.
+   - Result: validated working in tmux and outside tmux, including close/reopen Neovim lifecycle without losing context workflow.
