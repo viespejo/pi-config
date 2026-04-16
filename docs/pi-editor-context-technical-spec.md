@@ -177,7 +177,9 @@ Precedence:
 - `PI_CODING_AGENT_DIR`
 - `PI_EDITOR_CWD_HINT`
 - `PI_EDITOR_OWNER_PANE` (tmux pane id that owns the PI session; used to resolve pane-local Neovim RPC target)
+- `PI_EDITOR_OWNER_KEY` (owner identity for non-tmux routing, e.g. tty/pane-derived key)
 - tmux pane option `@pi_editor_nvr_server` (published by Neovim on the owner pane; validated against `nvr --serverlist`)
+- owner-key state file `~/.local/state/pi-editor/servers/<sha256(ownerKey)>.json` (published by Neovim; used when pane route is unavailable)
 
 ### 8.4 Debug
 
@@ -205,6 +207,8 @@ Default behavior (`soft`):
 - Never break PI external editor flow.
 - If session parse/discovery fails, open editor with prompt base only.
 - Preserve original temp file when recoverable.
+- If `nvr` fails with connection-loss (`EOFError` / `connection_lost`), skip temp-file fallback editor open to avoid stranded PI temp editing state.
+- If fallback editor is required for other errors, prefer `working.md` (context-preserving) and export prompt-only afterward.
 
 `hard` mode:
 
@@ -226,7 +230,11 @@ Default behavior (`soft`):
 6. `nvr` split + `--remote-wait-silent` flow -> close returns control correctly.
 7. Sidekick launch with env injection -> PI uses wrapper.
 8. Config precedence -> env overrides project/user/defaults.
-9. Dynamic server targeting resolves to the intended Neovim server from tmux pane-local option `@pi_editor_nvr_server` (owner pane), with `NVIM` and `NVIM_LISTEN_ADDRESS` fallbacks.
+9. Dynamic server targeting resolves to the intended Neovim server with deterministic precedence:
+   1. tmux pane-local option `@pi_editor_nvr_server` via `PI_EDITOR_OWNER_PANE`,
+   2. owner-key state file via `PI_EDITOR_OWNER_KEY`,
+   3. `NVIM`,
+   4. `NVIM_LISTEN_ADDRESS`.
 
 ## 13. Deliverables
 

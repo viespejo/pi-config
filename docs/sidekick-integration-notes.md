@@ -16,17 +16,20 @@ A PI-scoped environment injection is configured under `cli.tools.pi.env`:
 - `EDITOR = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
 - `VISUAL = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
 - `PI_EDITOR_OWNER_PANE = vim.env.TMUX_PANE or ""`
+- `PI_EDITOR_OWNER_KEY = tostring(vim.g.pi_editor_owner_key or "")`
 - `PI_EDITOR_OPEN_MODE = "nvr"`
 
 A concise English comment clarifies this env scope is PI-only.
 
-In addition, Neovim now publishes its RPC server address to a tmux pane-local option:
+In addition, Neovim now publishes its RPC server address to two deterministic targets:
 
-- option name: `@pi_editor_nvr_server`
-- publish timing: startup best-effort, `VimEnter`, `FocusGained`
-- cleanup timing: `VimLeavePre` with guarded cleanup (only unset when still owned by current `vim.v.servername`)
+- tmux pane-local option: `@pi_editor_nvr_server`
+- owner-key state file: `~/.local/state/pi-editor/servers/<sha256(ownerKey)>.json`
 
-This removes dependence on tmux global environment for server routing and makes multi-pane PI sessions deterministic.
+Publish timing: startup best-effort, `VimEnter`, `FocusGained`.
+Cleanup timing: `VimLeavePre` with guarded cleanup (only unset/delete when still owned by current `vim.v.servername`).
+
+This keeps multi-pane tmux routing deterministic while also enabling `nvr` resolution outside tmux using owner-key state files.
 
 ## Constraints Preserved
 

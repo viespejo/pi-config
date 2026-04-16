@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 const MARKERS = {
@@ -796,6 +797,104 @@ function readTmuxPaneOption(ownerPane, optionName, env = process.env) {
   };
 }
 
+function ownerStateFilePath(ownerKey) {
+  const digest = createHash("sha256").update(ownerKey).digest("hex");
+  return path.join(
+    os.homedir(),
+    ".local",
+    "state",
+    "pi-editor",
+    "servers",
+    `${digest}.json`,
+  );
+}
+
+function ownerKeyCandidates(ownerKey) {
+  const key = String(ownerKey ?? "").trim();
+  if (!key) return [];
+
+  const out = [key];
+
+  if (key.startsWith("pid:")) {
+    out.push(key.slice(4));
+  } else if (/^\d+$/.test(key)) {
+    out.push(`pid:${key}`);
+  }
+
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+function readOwnerStateFile(ownerKey) {
+  const candidates = ownerKeyCandidates(ownerKey);
+  if (candidates.length === 0) {
+    return {
+      value: "",
+      status: "owner-key-missing",
+      detail: "PI_EDITOR_OWNER_KEY is empty",
+      stateFilePath: "",
+      matchedOwnerKey: "",
+    };
+  }
+
+  let lastMissingPath = "";
+
+  for (const candidateKey of candidates) {
+    const stateFilePath = ownerStateFilePath(candidateKey);
+    try {
+      const raw = readFileSync(stateFilePath, "utf8");
+      const parsed = JSON.parse(raw);
+      const value = String(parsed?.server ?? "").trim();
+
+      if (!value) {
+        return {
+          value: "",
+          status: "state-file-empty",
+          detail: "state file has no server field",
+          stateFilePath,
+          matchedOwnerKey: candidateKey,
+        };
+      }
+
+      return {
+        value,
+        status: candidateKey === candidates[0] ? "ok" : "ok-compat-owner-key",
+        detail:
+          candidateKey === candidates[0]
+            ? "resolved from owner-key state file"
+            : `resolved from compatible owner-key format (${candidateKey})`,
+        stateFilePath,
+        matchedOwnerKey: candidateKey,
+      };
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        lastMissingPath = stateFilePath;
+        continue;
+      }
+
+      return {
+        value: "",
+        status: "state-file-read-failed",
+        detail: error instanceof Error ? error.message : String(error),
+        stateFilePath,
+        matchedOwnerKey: candidateKey,
+      };
+    }
+  }
+
+  return {
+    value: "",
+    status: "state-file-missing",
+    detail: `owner-key state file not found for candidates: ${candidates.join(", ")}`,
+    stateFilePath: lastMissingPath,
+    matchedOwnerKey: "",
+  };
+}
+
 function resolveNvrTargetServer(env = process.env) {
   const availableServers = listNvrServers();
   const availableSet = new Set(availableServers);
@@ -804,10 +903,17 @@ function resolveNvrTargetServer(env = process.env) {
   const paneOptionName = "@pi_editor_nvr_server";
   const paneLookup = readTmuxPaneOption(ownerPane, paneOptionName, env);
 
+  const ownerKey = String(env.PI_EDITOR_OWNER_KEY ?? "").trim();
+  const ownerStateLookup = readOwnerStateFile(ownerKey);
+
   const rawCandidates = [
     {
       value: paneLookup.value,
       source: `tmux-pane-option:${paneOptionName}`,
+    },
+    {
+      value: ownerStateLookup.value,
+      source: "state-file:PI_EDITOR_OWNER_KEY",
     },
     { value: env.NVIM, source: "env:NVIM" },
     {
@@ -839,7 +945,11 @@ function resolveNvrTargetServer(env = process.env) {
     paneOptionName,
     paneOptionStatus: paneLookup.status,
     paneOptionDetail: paneLookup.detail,
-    paneOptionValue: paneLookup.value,
+    ownerKey,
+    ownerStateMatchedOwnerKey: ownerStateLookup.matchedOwnerKey,
+    ownerStateFilePath: ownerStateLookup.stateFilePath,
+    ownerStateStatus: ownerStateLookup.status,
+    ownerStateDetail: ownerStateLookup.detail,
   };
 }
 
@@ -868,7 +978,30 @@ function makeNvrArgs(
   ];
 }
 
-function openEditor(filePath, config, env = process.env) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveNvrTargetServerWithRetry(
+  env = process.env,
+  options = {},
+) {
+  const attempts = Math.max(1, Number(options.attempts ?? 3));
+  const delayMs = Math.max(0, Number(options.delayMs ?? 250));
+
+  let last = resolveNvrTargetServer(env);
+  for (let i = 1; i < attempts; i += 1) {
+    if (last.hasTarget) {
+      return { ...last, resolutionAttempts: i };
+    }
+    await sleep(delayMs);
+    last = resolveNvrTargetServer(env);
+  }
+
+  return { ...last, resolutionAttempts: attempts };
+}
+
+async function openEditor(filePath, config, env = process.env) {
   const nvrWaitArg = "--remote-wait-silent";
   const nvrPreOpenArgs = ["-cc", "split"];
   const editorInitArgs = [
@@ -883,7 +1016,10 @@ function openEditor(filePath, config, env = process.env) {
       throw new Error("nvr mode requested, but nvr is not available in PATH");
     }
 
-    const nvrResolution = resolveNvrTargetServer(env);
+    const nvrResolution = await resolveNvrTargetServerWithRetry(env, {
+      attempts: 3,
+      delayMs: 250,
+    });
     if (!nvrResolution.hasTarget) {
       throw new Error(
         "nvr mode requested, but no reachable target server was resolved",
@@ -921,7 +1057,10 @@ function openEditor(filePath, config, env = process.env) {
         throw firstError;
       }
 
-      const retryResolution = resolveNvrTargetServer(env);
+      const retryResolution = await resolveNvrTargetServerWithRetry(env, {
+        attempts: 3,
+        delayMs: 250,
+      });
       if (!retryResolution.hasTarget) {
         throw firstError;
       }
@@ -962,22 +1101,6 @@ function openEditor(filePath, config, env = process.env) {
         },
       };
     }
-
-    return {
-      requestedMode: config.openMode,
-      effectiveMode: "nvr",
-      command: "nvr",
-      waitMode: "remote-wait-silent",
-      nvrServerAvailable: true,
-      nvrTargetServer: nvrResolution.targetServer,
-      nvrServerSource: nvrResolution.targetSource,
-      availableServers: nvrResolution.availableServers,
-      candidateServers: nvrResolution.candidateServers,
-      ownerPane: nvrResolution.ownerPane,
-      paneOptionName: nvrResolution.paneOptionName,
-      paneOptionStatus: nvrResolution.paneOptionStatus,
-      paneOptionDetail: nvrResolution.paneOptionDetail,
-    };
   }
 
   if (config.openMode === "nvim") {
@@ -992,7 +1115,10 @@ function openEditor(filePath, config, env = process.env) {
 
   const hasNvr = commandAvailable("nvr");
   const nvrResolution = hasNvr
-    ? resolveNvrTargetServer(env)
+    ? await resolveNvrTargetServerWithRetry(env, {
+        attempts: 3,
+        delayMs: 250,
+      })
     : {
         hasTarget: false,
         targetServer: "",
@@ -1033,7 +1159,10 @@ function openEditor(filePath, config, env = process.env) {
       };
     } catch (error) {
       if (isNvrConnectionLostError(error)) {
-        const retryResolution = resolveNvrTargetServer(env);
+        const retryResolution = await resolveNvrTargetServerWithRetry(env, {
+          attempts: 3,
+          delayMs: 250,
+        });
         if (retryResolution.hasTarget) {
           const retryArgs = makeNvrArgs(
             retryResolution.targetServer,
