@@ -1,90 +1,86 @@
-1. **Operational Changes Applied**
-   - `~/.config/nvim/lua/plugins/sidekick.lua` (external to repo): documented PI-only env scope, tmux stale-env caveat, manual refresh strategy, and kept command identity explicit as `cmd = { "pi" }`.
-   - `scripts/pi-editor-context.mjs`: added operational debug observability for config precedence, session discovery trace, branch leaf selection, context extraction/truncation stats, editor mode decision, and prompt export char/byte summaries.
-   - `scripts/pi-editor-context`: added concise operator-facing debug usage notes (`PI_EDITOR_DEBUG=1`, debug log location).
-   - `docs/pi-editor-context-technical-spec.md`: added an operational hardening section with stale-env symptoms, deterministic recovery runbook, smoke commands, expected debug signals, and a compact low-context checklist.
+1. **Scope Executed**
 
-2. **Smoke Scenarios Executed**
-   - Scenario: Deterministic wrapper diagnostics capture (non-interactive).
-     - Command sequence:
-       - `node tests/pi-editor-context/run.mjs`
-       - one-shot debug invocation via Node harness calling `runEditorContext(...)` with `PI_EDITOR_DEBUG=1` and fixture session file.
-       - `tail -n 20 ~/.local/state/pi-editor/debug.log`
-     - Observed behavior:
-       - Test harness result: `Summary: 6 passed, 0 failed, 6 total`.
-       - Debug log emitted required signals: `config-resolved`, `session-discovery`, `branch-selection`, `context-built`, `editor-open`, `exported`.
-       - `exported` included char/byte summary fields (`outputChars`, `outputBytes`, `inputPromptChars`, `inputPromptBytes`, `contextChars`, `contextBytes`).
+- Task A1 — Safety-net expansion (deterministic tests):
+  - `tests/pi-editor-context/cases.mjs`
+- Task A2 — Standardize test command:
+  - `package.json`
+- Task A3 — Extract context core:
+  - `scripts/pi-editor-context-lib/context-core.mjs`
+  - `scripts/pi-editor-context.mjs`
+- Task A4 — Extract config module:
+  - `scripts/pi-editor-context-lib/config.mjs`
+  - `scripts/pi-editor-context.mjs`
+- Task A5 — Extract session modules:
+  - `scripts/pi-editor-context-lib/session-core.mjs`
+  - `scripts/pi-editor-context-lib/session-discovery.mjs`
+  - `scripts/pi-editor-context.mjs`
+- Task A6 — Extract editor-open as-is:
+  - `scripts/pi-editor-context-lib/editor-open.mjs`
+  - `scripts/pi-editor-context.mjs`
+- Task A7 — Extract workflow and keep stable facade:
+  - `scripts/pi-editor-context-lib/workflow.mjs`
+  - `scripts/pi-editor-context.mjs`
+- Plan progress tracking updated:
+  - `docs/pi-editor-context-refactor-plan.md`
 
-   - Scenario: Lint/format gate for modified artifacts.
-     - Command sequence:
-       - `npx prettier --write scripts/pi-editor-context.mjs`
-       - `npx prettier --check scripts/pi-editor-context.mjs`
-       - `npm run lint`
-     - Observed behavior:
-       - Prettier check passed for modified JS module.
-       - ESLint reported 0 errors; warnings are pre-existing in unrelated `tallow-extensions/*` files.
+2. **Safety Net Additions**
 
-3. **Acceptance Criteria Results**
-   - **AC-1: Environment drift detectability** — **PASS**
-     - Evidence: `config-resolved` records effective config + source-by-field precedence; `editor-open` records requested/effective mode; `session-discovery` records selected source/path.
-   - **AC-2: Recovery runbook availability** — **PASS**
-     - Evidence: technical spec now contains deterministic tmux recovery steps (`<leader>sd` -> `<leader>ss`) and post-recovery verification instructions.
-   - **AC-3: Non-breaking Sidekick integration** — **PASS**
-     - Evidence: PI identity preserved as `cmd = { "pi" }`; PI-scoped env remains under `cli.tools.pi.env`; no non-PI tool changes were introduced.
-   - **AC-4: Wrapper operational observability** — **PASS**
-     - Evidence: debug log now includes precedence result, session path/source details, selected leaf id, context message/truncation stats, editor open decision, and export length summary (chars/bytes).
-   - **AC-5: Safe default behavior preserved** — **PASS**
-     - Evidence: debug path is opt-in (`PI_EDITOR_DEBUG=1`); debug write failures are swallowed by design; soft error policy behavior remains unchanged and covered by existing tests.
+- `workflow-auto-routing-accepts-editor-decision-metadata-shape`
+  - Protects orchestrated flow behavior when `openEditorImpl` is injected and returns routing metadata.
+- `soft-fallback-opens-working-file-on-non-connection-editor-failure`
+  - Protects soft-mode fallback behavior for non-connection-loss errors.
+- `working-mode-temp-cleans-up-working-directory-after-success`
+  - Protects temporary working directory cleanup semantics.
+- `working-mode-persistent-keeps-working-file-for-inspection`
+  - Protects persistent working-file retention semantics.
 
-4. **Runbook Validation**
-   - Confirmed recovery workflow is documented and executable:
-     1. Reproduce once with debug enabled.
-     2. Inspect `~/.local/state/pi-editor/debug.log` for mismatch.
-     3. Close Sidekick PI session (`<leader>sd`).
-     4. Re-select PI (`<leader>ss`).
-     5. Re-run external editor and verify corrected `config-resolved` + `editor-open` signals.
-   - Validation status: documented and traceable through debug evidence; interactive tmux pane cycling is operator-driven and consistent with Sidekick workflow constraints.
+3. **Modularization Result**
 
-5. **Residual Risks**
-   - Existing tmux sessions can still carry stale env until explicitly recycled; this is expected behavior and now documented.
-   - `scripts/pi-editor-context` shell launcher is not covered by current Prettier parser setup; formatting remains manually maintained.
-   - Repository has unrelated pre-existing ESLint warnings in `tallow-extensions/*`; they do not block this plan phase.
+- `scripts/pi-editor-context.mjs`
+  - Stable CLI facade + public export surface (backward-compatible import path).
+- `scripts/pi-editor-context-lib/context-core.mjs`
+  - Context formatting/construction and prompt-region extraction.
+- `scripts/pi-editor-context-lib/config.mjs`
+  - Defaults/markers and config precedence resolution with source metadata.
+- `scripts/pi-editor-context-lib/session-core.mjs`
+  - JSONL parse, message extraction, branch selection, ID/timestamp helpers.
+- `scripts/pi-editor-context-lib/session-discovery.mjs`
+  - Session root resolution and bucket/global discovery strategy.
+- `scripts/pi-editor-context-lib/editor-open.mjs`
+  - Editor routing/open logic moved as-is (no simplification in Phase A).
+- `scripts/pi-editor-context-lib/workflow.mjs`
+  - End-to-end orchestration (`runEditorContext`) and fallback policy.
 
-6. **Latest Runtime Deltas (Session Handoff Addendum)**
-   - `scripts/pi-editor-context.mjs` now resolves `nvr` target server dynamically and deterministically:
-     - candidate precedence: process env `PI_EDITOR_NVR_SERVER` -> tmux global `PI_EDITOR_NVR_SERVER` -> `NVIM` -> `NVIM_LISTEN_ADDRESS`
-     - candidates are validated against `nvr --serverlist`
-     - `nvr` invocation is pinned to `--servername <resolved>` + `--nostart`
-   - `nvr` launch behavior is simplified and fixed:
-     - always opens in split (`-cc split`)
-     - always waits with `--remote-wait-silent`
-     - tab wait-mode support was removed from config and docs
-   - Editor-open UX was refined:
-     - opening view is initialized to prompt section (`PI_PROMPT_START` anchor)
-     - cursor is moved to end-of-prompt for immediate input
-     - context block includes an operator note that context is not exported and markers must not be altered
+4. **Compatibility Validation**
 
-7. **Quick Manual Validation for Next Session**
-   - Trigger `Ctrl+G` in Sidekick PI flow and confirm:
-     1. editor opens in split (terminal pane preserved)
-     2. no `nvr` startup noise/flicker leading to detached local instance
-     3. prompt region is focused on open; cursor is at end
-     4. `:q`/`:wq` returns control without terminal deadlock
-   - Optional debug confirmation (`PI_EDITOR_DEBUG=1`):
-     - inspect `editor-returned.editorDecision` for `effectiveMode`, `nvrTargetServer`, `nvrServerSource`, `candidateServers`, `availableServers`
+- Public exports preserved from `scripts/pi-editor-context.mjs`:
+  - `DEFAULTS`, `MARKERS`, `buildContext`, `buildWorkingFile`, `discoverSessionFile`, `extractPromptFromWorkingFile`, `extractMessageText`, `parseJsonlSession`, `resolveConfig`, `runEditorContext`, `selectBranch`.
+- Launcher behavior unchanged:
+  - `scripts/pi-editor-context` still delegates to `scripts/pi-editor-context.mjs`.
+- Marker contract unchanged:
+  - `<!-- PI_CONTEXT_START -->`, `<!-- PI_CONTEXT_END -->`, `<!-- PI_PROMPT_START -->`.
 
-8. **Reference Commits (Chronological)**
-   - `be7d25a` — stabilize nvr auto-targeting and split-based editor open
-   - `1b0e347` — remove nvr tab mode and enforce split remote-wait flow
-   - `f4f0530` — refine editor open positioning and add marker safety note
+5. **Verification Evidence**
 
-9. **Latest Stabilization Addendum (2026-04-16)**
-   - Confirmed root cause of non-tmux recovery failures: unstable owner identity (`pid:*`) surviving in PI env while Neovim restarted with a new PID.
-   - Outside tmux owner identity was stabilized in external Neovim config:
-     - `tmux-pane:*` when available,
-     - else `tty:*`,
-     - else `cwd:<sha256(realpath(cwd))>`.
-   - `scripts/pi-editor-context.mjs` now accepts compatible owner-key formats when reading state files (`pid:1234` and `1234`) to avoid legacy/session-format mismatches.
-   - Fallback behavior was unified: when soft fallback needs `nvim`, it now reuses the same `openEditor(...)` path (forced `openMode: "nvim"`) instead of a separate bare `nvim <file>` path, preserving the same buffer init/folding behavior.
-   - Launcher hardening: `scripts/pi-editor-context` resolves symlinks before computing repo root, so `EDITOR=pi-editor-context` works correctly when invoked via `~/bin/pi-editor-context` symlink.
-   - Result: validated working in tmux and outside tmux, including close/reopen Neovim lifecycle without losing context workflow.
+- Commands executed:
+  - `npm test`
+  - `npm run lint`
+- `npm test` result:
+  - `Summary: 10 passed, 0 failed, 10 total`
+- `npm run lint` result:
+  - Exit success with pre-existing warnings only (0 errors).
+
+6. **Phase B Simplification Log**
+
+- B1: Unify nvr arg + metadata construction helpers — **pending**.
+- B2: Unify nvr normal/retry flow — **pending**.
+- B3: Centralize nvim fallback path — **pending**.
+- B4: Re-verify observable output contract fields remain unchanged — **pending**.
+- B5: Run full verification and update SUMMARY evidence — **pending**.
+
+7. **Residual Risks / Follow-ups**
+
+- `editor-open` remains intentionally duplicated internally until Phase B simplification is completed.
+- Keep validating observable contract fields during Phase B:
+  - `effectiveMode`, `fallbackFrom`, `nvrRetry`, and routing/debug metadata.
+- Lint warnings are pre-existing and out of scope for this refactor track.

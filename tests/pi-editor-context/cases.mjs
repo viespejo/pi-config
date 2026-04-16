@@ -38,6 +38,23 @@ async function makeTempDir(prefix) {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+async function exists(targetPath) {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function replacePromptRegion(workingFileContent, nextPrompt) {
+  const marker = "<!-- PI_PROMPT_START -->";
+  const index = workingFileContent.indexOf(marker);
+  assert(index >= 0, "Working file must include PI_PROMPT_START marker");
+  const head = workingFileContent.slice(0, index + marker.length);
+  return `${head}\n${nextPrompt}`;
+}
+
 function parseFormattedBlocks(contextText) {
   return contextText
     .split("\n\n")
@@ -294,20 +311,24 @@ export const testCases = [
         "Env boolean should override project/user",
       );
       assert(config.maxChars === 3333, "Env should override project maxChars");
-      assert(config.errorPolicy === "hard", "Env should override project policy");
-      assert(config.openMode === "nvr", "Project should override user for openMode");
+      assert(
+        config.errorPolicy === "hard",
+        "Env should override project policy",
+      );
+      assert(
+        config.openMode === "nvr",
+        "Project should override user for openMode",
+      );
       assert(
         config.workingMode === "persistent",
         "User should override defaults when project/env are unset",
       );
-
     },
   },
   {
     name: "soft-policy-recovers-on-malformed-session-with-fallback-editor",
     ac: ["AC-5"],
-    setup:
-      "Create malformed session JSONL and a temp prompt file.",
+    setup: "Create malformed session JSONL and a temp prompt file.",
     invocation:
       "Run wrapper via test hook with soft error policy and injected fallback editor.",
     assertions:
@@ -318,7 +339,11 @@ export const testCases = [
       const malformedSessionPath = path.join(sandbox, "malformed.jsonl");
 
       await fs.writeFile(tempFile, "Original prompt body\n", "utf8");
-      await fs.writeFile(malformedSessionPath, "{this-is-not-valid-json}\n", "utf8");
+      await fs.writeFile(
+        malformedSessionPath,
+        "{this-is-not-valid-json}\n",
+        "utf8",
+      );
 
       let fallbackCalled = false;
       const result = await runEditorContext({
@@ -330,7 +355,9 @@ export const testCases = [
           PI_EDITOR_WORKING_MODE: "temp",
         },
         openEditorImpl: () => {
-          throw new Error("Working editor should not open when session parse fails");
+          throw new Error(
+            "Working editor should not open when session parse fails",
+          );
         },
         fallbackEditorImpl: async (fallbackPath) => {
           fallbackCalled = true;
@@ -359,8 +386,7 @@ export const testCases = [
   {
     name: "enforces-truncation-limits-and-structured-formatting",
     ac: ["AC-6"],
-    setup:
-      "Use mixed fixture entries with multiline and oversized messages.",
+    setup: "Use mixed fixture entries with multiline and oversized messages.",
     invocation:
       "Build context with strict maxPerMessage/maxChars limits and inspect output shape.",
     assertions:
@@ -385,7 +411,10 @@ export const testCases = [
       const context = buildContext(branchEntries, config);
       const blocks = parseFormattedBlocks(context.contextText);
 
-      assert(context.contextText.length <= config.maxChars, "Global maxChars must be enforced");
+      assert(
+        context.contextText.length <= config.maxChars,
+        "Global maxChars must be enforced",
+      );
       assertIncludes(
         context.contextText,
         "…",
@@ -416,6 +445,280 @@ export const testCases = [
       assert(
         sawContinuationLine,
         "At least one continuation line should exist for multiline formatting",
+      );
+    },
+  },
+  {
+    name: "workflow-auto-routing-accepts-editor-decision-metadata-shape",
+    ac: ["AC-1"],
+    setup:
+      "Create temp prompt and run orchestration with openMode=auto and injected openEditorImpl metadata return.",
+    invocation:
+      "runEditorContext uses stubbed openEditorImpl, edits working file, and exports prompt.",
+    assertions:
+      "Flow succeeds and accepts editorDecision metadata shape while exporting only prompt content.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-context-routing-");
+      const tempFile = path.join(sandbox, "prompt.md");
+      const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
+      await fs.writeFile(tempFile, "Prompt before routing test\n", "utf8");
+
+      let capturedWorkingPath = "";
+      let capturedConfig = null;
+
+      const result = await runEditorContext({
+        tempFile,
+        env: {
+          PI_EDITOR_CONTEXT_ENABLED: "true",
+          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_OPEN_MODE: "auto",
+          PI_EDITOR_WORKING_MODE: "temp",
+          PWD: sandbox,
+        },
+        openEditorImpl: async (workingPath, config) => {
+          capturedWorkingPath = workingPath;
+          capturedConfig = config;
+          const current = await fs.readFile(workingPath, "utf8");
+          const updated = replacePromptRegion(
+            current,
+            "Prompt updated by auto routing stub\n",
+          );
+          await fs.writeFile(workingPath, updated, "utf8");
+
+          return {
+            requestedMode: "auto",
+            effectiveMode: "nvr",
+            command: "nvr",
+            waitMode: "remote-wait-silent",
+            nvrServerAvailable: true,
+          };
+        },
+      });
+
+      const exported = await fs.readFile(tempFile, "utf8");
+
+      assert(
+        result.status === "ok",
+        "Orchestration should complete successfully",
+      );
+      assert(
+        capturedWorkingPath.length > 0,
+        "openEditorImpl should receive a working file path",
+      );
+      assert(
+        capturedConfig?.openMode === "auto",
+        "openEditorImpl should receive openMode=auto",
+      );
+      assertIncludes(
+        exported,
+        "Prompt updated by auto routing stub",
+        "Updated prompt content should be exported",
+      );
+      assertNotIncludes(
+        exported,
+        "PI_CONTEXT_START",
+        "Exported prompt must not include context marker block",
+      );
+    },
+  },
+  {
+    name: "soft-fallback-opens-working-file-on-non-connection-editor-failure",
+    ac: ["AC-1"],
+    setup:
+      "Run orchestration with editor failure that is not connection_lost and use fallback editor on working file.",
+    invocation:
+      "openEditorImpl throws generic error; fallbackEditorImpl edits working file prompt region.",
+    assertions:
+      "Soft mode invokes fallback and exports prompt-only output without leaking context edits.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-context-fallback-");
+      const tempFile = path.join(sandbox, "prompt.md");
+      const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
+      await fs.writeFile(tempFile, "Prompt before fallback test\n", "utf8");
+
+      let fallbackCalled = false;
+      let fallbackPath = "";
+
+      const result = await runEditorContext({
+        tempFile,
+        env: {
+          PI_EDITOR_CONTEXT_ENABLED: "true",
+          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_OPEN_MODE: "auto",
+          PI_EDITOR_WORKING_MODE: "temp",
+          PI_EDITOR_ERROR_POLICY: "soft",
+          PWD: sandbox,
+        },
+        openEditorImpl: () => {
+          throw new Error("generic-editor-crash");
+        },
+        fallbackEditorImpl: async (nextFallbackPath) => {
+          fallbackCalled = true;
+          fallbackPath = nextFallbackPath;
+          const current = await fs.readFile(nextFallbackPath, "utf8");
+          const withLeakedContext = current.replace(
+            "Branch B draft: checklist with rollback owners and verification gates.",
+            "LEAKED_CONTEXT_SHOULD_NOT_EXPORT",
+          );
+          const updated = replacePromptRegion(
+            withLeakedContext,
+            "Prompt updated by fallback working-file flow\n",
+          );
+          await fs.writeFile(nextFallbackPath, updated, "utf8");
+        },
+      });
+
+      const exported = await fs.readFile(tempFile, "utf8");
+
+      assert(
+        result.status === "soft-recovered",
+        "Soft mode should recover from generic editor failure",
+      );
+      assert(
+        fallbackCalled,
+        "Fallback editor must be invoked for non-connection failures",
+      );
+      assert(
+        fallbackPath !== tempFile,
+        "Fallback path should be working file when available",
+      );
+      assertIncludes(
+        exported,
+        "Prompt updated by fallback working-file flow",
+        "Fallback-edited prompt should be exported",
+      );
+      assertNotIncludes(
+        exported,
+        "LEAKED_CONTEXT_SHOULD_NOT_EXPORT",
+        "Context-region edits must not leak into exported prompt",
+      );
+      assertNotIncludes(
+        exported,
+        "PI_CONTEXT_START",
+        "Exported fallback prompt must not include context markers",
+      );
+    },
+  },
+  {
+    name: "working-mode-temp-cleans-up-working-directory-after-success",
+    ac: ["AC-1"],
+    setup:
+      "Run orchestration in workingMode=temp and capture generated working file path.",
+    invocation: "openEditorImpl edits prompt and returns success metadata.",
+    assertions:
+      "Temporary working directory is removed after successful export.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-context-temp-working-");
+      const tempFile = path.join(sandbox, "prompt.md");
+      const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
+      await fs.writeFile(
+        tempFile,
+        "Prompt before temp lifecycle test\n",
+        "utf8",
+      );
+
+      let workingPath = "";
+
+      const result = await runEditorContext({
+        tempFile,
+        env: {
+          PI_EDITOR_CONTEXT_ENABLED: "true",
+          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_WORKING_MODE: "temp",
+          PI_EDITOR_OPEN_MODE: "auto",
+          PWD: sandbox,
+        },
+        openEditorImpl: async (nextWorkingPath) => {
+          workingPath = nextWorkingPath;
+          const current = await fs.readFile(nextWorkingPath, "utf8");
+          const updated = replacePromptRegion(
+            current,
+            "Prompt updated in temp lifecycle test\n",
+          );
+          await fs.writeFile(nextWorkingPath, updated, "utf8");
+          return {
+            requestedMode: "auto",
+            effectiveMode: "nvim",
+            command: "nvim",
+            waitMode: "process",
+          };
+        },
+      });
+
+      assert(
+        result.status === "ok",
+        "Temp lifecycle flow should complete successfully",
+      );
+      assert(workingPath.length > 0, "Working path should be captured");
+      const workingDirExists = await exists(path.dirname(workingPath));
+      assert(
+        !workingDirExists,
+        "Temporary working directory should be removed after export",
+      );
+    },
+  },
+  {
+    name: "working-mode-persistent-keeps-working-file-for-inspection",
+    ac: ["AC-1"],
+    setup:
+      "Run orchestration in workingMode=persistent and capture generated working file path.",
+    invocation: "openEditorImpl edits prompt and returns success metadata.",
+    assertions: "Persistent working file remains available after export.",
+    run: async () => {
+      const sandbox = await makeTempDir(
+        "pi-editor-context-persistent-working-",
+      );
+      const tempFile = path.join(sandbox, "prompt.md");
+      const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
+      await fs.writeFile(
+        tempFile,
+        "Prompt before persistent lifecycle test\n",
+        "utf8",
+      );
+
+      let workingPath = "";
+
+      const result = await runEditorContext({
+        tempFile,
+        env: {
+          PI_EDITOR_CONTEXT_ENABLED: "true",
+          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_WORKING_MODE: "persistent",
+          PI_EDITOR_OPEN_MODE: "auto",
+          PWD: sandbox,
+        },
+        openEditorImpl: async (nextWorkingPath) => {
+          workingPath = nextWorkingPath;
+          const current = await fs.readFile(nextWorkingPath, "utf8");
+          const updated = replacePromptRegion(
+            current,
+            "Prompt updated in persistent lifecycle test\n",
+          );
+          await fs.writeFile(nextWorkingPath, updated, "utf8");
+          return {
+            requestedMode: "auto",
+            effectiveMode: "nvim",
+            command: "nvim",
+            waitMode: "process",
+          };
+        },
+      });
+
+      assert(
+        result.status === "ok",
+        "Persistent lifecycle flow should complete successfully",
+      );
+      assert(
+        workingPath.length > 0,
+        "Persistent working path should be captured",
+      );
+      assert(
+        workingPath.endsWith(".pi-editor-context.md"),
+        "Persistent working file should use .pi-editor-context.md suffix",
+      );
+      assert(
+        await exists(workingPath),
+        "Persistent working file should remain on disk after export",
       );
     },
   },
