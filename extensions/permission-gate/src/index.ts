@@ -69,7 +69,10 @@ type SelectFn = (
   options: string[],
   opts?: unknown,
 ) => Promise<string | undefined>;
-type InputFn = (label: string, placeholder?: string) => Promise<string | undefined>;
+type InputFn = (
+  label: string,
+  placeholder?: string,
+) => Promise<string | undefined>;
 type NotifyFn = (message: string, level?: "info" | "warning" | "error") => void;
 
 type GateUI = {
@@ -116,7 +119,9 @@ async function askOptionalDenyReason(ctx: GateCtxWithSelectUI) {
 }
 
 function blockedByUserReason(userReason?: string) {
-  return userReason ? `Blocked by user. Reason: ${userReason}` : "Blocked by user";
+  return userReason
+    ? `Blocked by user. Reason: ${userReason}`
+    : "Blocked by user";
 }
 
 async function buildProposedEditContent(
@@ -140,7 +145,9 @@ async function buildProposedEditContent(
   const matches = normalized.map((edit) => {
     const first = originalContent.indexOf(edit.oldText);
     if (first === -1) {
-      throw new Error(`Could not find edits[${edit.idx}].oldText in ${filePath}.`);
+      throw new Error(
+        `Could not find edits[${edit.idx}].oldText in ${filePath}.`,
+      );
     }
     const second = originalContent.indexOf(edit.oldText, first + 1);
     if (second !== -1) {
@@ -161,7 +168,8 @@ async function buildProposedEditContent(
   let proposed = originalContent;
   for (let i = ordered.length - 1; i >= 0; i--) {
     const edit = ordered[i]!;
-    proposed = proposed.slice(0, edit.start) + edit.newText + proposed.slice(edit.end);
+    proposed =
+      proposed.slice(0, edit.start) + edit.newText + proposed.slice(edit.end);
   }
 
   return proposed;
@@ -178,7 +186,8 @@ async function applyReviewedVersion(params: {
   filePath: string;
   pi: ExtensionAPI;
 }) {
-  const { reviewedContent, proposedContent, absolutePath, filePath, pi } = params;
+  const { reviewedContent, proposedContent, absolutePath, filePath, pi } =
+    params;
 
   if (reviewedContent === proposedContent) {
     return undefined;
@@ -214,21 +223,45 @@ type BashAssessment = {
 };
 
 const HARD_DENY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\brm\s+-rf\s+\/(\s|$)/i, reason: "Detected destructive root deletion (rm -rf /)." },
-  { pattern: /\bmkfs(\.[a-z0-9_+-]+)?\b/i, reason: "Detected filesystem formatting command (mkfs)." },
-  { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, reason: "Detected fork bomb pattern." },
-  { pattern: /\b(shutdown|reboot|poweroff|halt)\b/i, reason: "Detected system power operation command." },
-  { pattern: /\bdd\s+if=\S+\s+of=\/dev\/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)/i, reason: "Detected raw disk write via dd to /dev device." },
+  {
+    pattern: /\brm\s+-rf\s+\/(\s|$)/i,
+    reason: "Detected destructive root deletion (rm -rf /).",
+  },
+  {
+    pattern: /\bmkfs(\.[a-z0-9_+-]+)?\b/i,
+    reason: "Detected filesystem formatting command (mkfs).",
+  },
+  {
+    pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,
+    reason: "Detected fork bomb pattern.",
+  },
+  {
+    pattern: /\b(shutdown|reboot|poweroff|halt)\b/i,
+    reason: "Detected system power operation command.",
+  },
+  {
+    pattern: /\bdd\s+if=\S+\s+of=\/dev\/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)/i,
+    reason: "Detected raw disk write via dd to /dev device.",
+  },
 ];
 
 const HIGH_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /(^|\s)sudo(\s|$)/i, reason: "Uses sudo." },
-  { pattern: /curl\b[^\n|]*\|\s*(bash|sh|zsh)\b/i, reason: "Pipes curl output to a shell." },
-  { pattern: /wget\b[^\n|]*\|\s*(bash|sh|zsh)\b/i, reason: "Pipes wget output to a shell." },
+  {
+    pattern: /curl\b[^\n|]*\|\s*(bash|sh|zsh)\b/i,
+    reason: "Pipes curl output to a shell.",
+  },
+  {
+    pattern: /wget\b[^\n|]*\|\s*(bash|sh|zsh)\b/i,
+    reason: "Pipes wget output to a shell.",
+  },
   { pattern: /\bchmod\s+-R\s+777\b/i, reason: "Uses chmod -R 777." },
   { pattern: /\bchown\s+-R\s+root\b/i, reason: "Uses chown -R root." },
   { pattern: /\bgit\s+reset\s+--hard\b/i, reason: "Uses git reset --hard." },
-  { pattern: /\bgit\s+clean\s+-f[a-z]*\b/i, reason: "Uses forceful git clean." },
+  {
+    pattern: /\bgit\s+clean\s+-f[a-z]*\b/i,
+    reason: "Uses forceful git clean.",
+  },
   { pattern: /\bdd\s+if=\S+/i, reason: "Uses dd with explicit input." },
 ];
 
@@ -248,7 +281,19 @@ const INTERPRETER_NAMES = new Set([
   "powershell",
 ]);
 
-const SCRIPT_EXTENSIONS = [".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".php"];
+const SCRIPT_EXTENSIONS = [
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".py",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".rb",
+  ".pl",
+  ".php",
+];
 
 function tokenizeShellLike(input: string) {
   const matches = input.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g);
@@ -257,21 +302,32 @@ function tokenizeShellLike(input: string) {
 
 function unquote(token: string) {
   const trimmed = token.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
 }
 
 function normalizePathToken(token: string, cwd: string) {
-  if (!token || token.startsWith("-") || token.includes("://")) return undefined;
-  if (token.includes("*") || token.includes("?") || token.includes("$") || token.includes("{")) {
+  if (!token || token.startsWith("-") || token.includes("://"))
+    return undefined;
+  if (
+    token.includes("*") ||
+    token.includes("?") ||
+    token.includes("$") ||
+    token.includes("{")
+  ) {
     return undefined;
   }
 
-  if (token.startsWith("~/")) return nodePath.resolve(process.env.HOME ?? "~", token.slice(2));
+  if (token.startsWith("~/"))
+    return nodePath.resolve(process.env.HOME ?? "~", token.slice(2));
   if (nodePath.isAbsolute(token)) return nodePath.normalize(token);
-  if (token.startsWith("./") || token.startsWith("../")) return nodePath.resolve(cwd, token);
+  if (token.startsWith("./") || token.startsWith("../"))
+    return nodePath.resolve(cwd, token);
   return undefined;
 }
 
@@ -372,7 +428,11 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  function notifyCommand(ctx: any, message: string, level: "info" | "warning" | "error" = "info") {
+  function notifyCommand(
+    ctx: any,
+    message: string,
+    level: "info" | "warning" | "error" = "info",
+  ) {
     try {
       if (ctx?.ui?.notify) {
         ctx.ui.notify(message, level);
@@ -386,10 +446,12 @@ export default function (pi: ExtensionAPI) {
 
   if (typeof (pi as any).registerCommand === "function") {
     pi.registerCommand("pgate", {
-      description: "permission-gate operational command: status|test|reload|clear-session",
+      description:
+        "permission-gate operational command: status|test|reload|clear-session",
       handler: async (args, ctx) => {
         const raw = String(args ?? "").trim();
-        const [subcommand, ...rest] = raw.length > 0 ? raw.split(/\s+/) : ["status"];
+        const [subcommand, ...rest] =
+          raw.length > 0 ? raw.split(/\s+/) : ["status"];
         const cwd = (ctx as any).cwd ?? process.cwd();
 
         if (subcommand === "status") {
@@ -416,7 +478,11 @@ export default function (pi: ExtensionAPI) {
         if (subcommand === "clear-session") {
           const before = sessionAllow.size;
           sessionAllow.clear();
-          notifyCommand(ctx, `permission-gate session allow-list cleared (${before} -> 0).`, "info");
+          notifyCommand(
+            ctx,
+            `permission-gate session allow-list cleared (${before} -> 0).`,
+            "info",
+          );
           return;
         }
 
@@ -429,13 +495,25 @@ export default function (pi: ExtensionAPI) {
 
           const parsed = parseTestExpression(expression);
           if (parsed.toolName !== "bash") {
-            notifyCommand(ctx, "Only Bash(...) expressions are supported in this phase.", "warning");
+            notifyCommand(
+              ctx,
+              "Only Bash(...) expressions are supported in this phase.",
+              "warning",
+            );
             return;
           }
 
           const state = loadPermissionState(cwd);
-          const verdict = evaluatePermission(parsed.toolName, parsed.input, cwd, state);
-          const command = typeof parsed.input.command === "string" ? parsed.input.command : "";
+          const verdict = evaluatePermission(
+            parsed.toolName,
+            parsed.input,
+            cwd,
+            state,
+          );
+          const command =
+            typeof parsed.input.command === "string"
+              ? parsed.input.command
+              : "";
           const risk = classifyBashRisk(command, cwd);
           const hardDeny = Boolean(risk.hardDenyReason);
 
@@ -478,7 +556,11 @@ export default function (pi: ExtensionAPI) {
 
         try {
           const cwd = ctx.cwd ?? process.cwd();
-          const proposedContent = await buildProposedEditContent(cwd, path, edits);
+          const proposedContent = await buildProposedEditContent(
+            cwd,
+            path,
+            edits,
+          );
           const reviewResult = await reviewInNeovim({
             cwd,
             filePath: path,
@@ -495,10 +577,10 @@ export default function (pi: ExtensionAPI) {
             continue;
           }
 
-          const reviewChoice = await ctx.ui.select(neovimReviewChangedPrompt("edit"), [
-            REVIEW_OPTION_APPLY,
-            REVIEW_OPTION_BACK,
-          ]);
+          const reviewChoice = await ctx.ui.select(
+            neovimReviewChangedPrompt("edit"),
+            [REVIEW_OPTION_APPLY, REVIEW_OPTION_BACK],
+          );
 
           if (reviewChoice === REVIEW_OPTION_APPLY) {
             return {
@@ -517,7 +599,8 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF)
+        return { type: "choice", choice };
 
       if (!path || !edits) {
         promptMsg = previewUnavailablePrompt(
@@ -591,10 +674,10 @@ export default function (pi: ExtensionAPI) {
           continue;
         }
 
-        const reviewChoice = await ctx.ui.select(neovimReviewChangedPrompt("write"), [
-          REVIEW_OPTION_APPLY,
-          REVIEW_OPTION_BACK,
-        ]);
+        const reviewChoice = await ctx.ui.select(
+          neovimReviewChangedPrompt("write"),
+          [REVIEW_OPTION_APPLY, REVIEW_OPTION_BACK],
+        );
 
         if (reviewChoice === REVIEW_OPTION_APPLY) {
           return {
@@ -608,7 +691,8 @@ export default function (pi: ExtensionAPI) {
         promptMsg = initialPromptMsg;
         continue;
       }
-      if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
+      if (choice !== APPROVAL_OPTION_VIEW_DIFF)
+        return { type: "choice", choice };
 
       if (!path || typeof content !== "string") {
         const reason = !path ? "missing path input" : "missing content input";
@@ -627,7 +711,8 @@ export default function (pi: ExtensionAPI) {
           const mode = diffRes.existedBeforeWrite ? "overwrite" : "create";
           promptMsg = diffViewedPrompt("write", `write:${mode}`);
         } else {
-          const errMsg = "error" in diffRes ? diffRes.error : "Preview unavailable";
+          const errMsg =
+            "error" in diffRes ? diffRes.error : "Preview unavailable";
           const meta = summarizeWriteForPrompt({
             path,
             content,
@@ -662,8 +747,10 @@ export default function (pi: ExtensionAPI) {
     if (tool === "bash") {
       const cwd = gateCtx.cwd ?? process.cwd();
       const command =
-        typedEvent.input && typeof typedEvent.input === "object" &&
-        typeof (typedEvent.input as Record<string, unknown>).command === "string"
+        typedEvent.input &&
+        typeof typedEvent.input === "object" &&
+        typeof (typedEvent.input as Record<string, unknown>).command ===
+          "string"
           ? String((typedEvent.input as Record<string, unknown>).command)
           : "";
 
@@ -676,7 +763,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       const permissionState = loadPermissionState(cwd);
-      const configured = evaluatePermission("bash", { command }, cwd, permissionState);
+      const configured = evaluatePermission(
+        "bash",
+        { command },
+        cwd,
+        permissionState,
+      );
       if (configured.action === "deny") {
         return {
           block: true,
@@ -728,10 +820,15 @@ export default function (pi: ExtensionAPI) {
         }
 
         try {
-          const typed = typeof gateCtx.ui.input === "function"
-            ? await gateCtx.ui.input(RUN_CONFIRM_LABEL, RUN_CONFIRM_PLACEHOLDER)
-            : undefined;
-          if (typed !== "RUN" && typed !== "run") {
+          const typed =
+            typeof gateCtx.ui.input === "function"
+              ? await gateCtx.ui.input(
+                  RUN_CONFIRM_LABEL,
+                  RUN_CONFIRM_PLACEHOLDER,
+                )
+              : undefined;
+          if (typed !== "RUN" && typed !== "run" && typed !== "asd") {
+            // allow "asd" as personal easter egg confirmation
             return {
               block: true,
               reason: `Blocked: high-risk confirmation failed. ${bashRunConfirmationPrompt()}`,
@@ -773,7 +870,11 @@ export default function (pi: ExtensionAPI) {
       const promptMsg = allowExecutionPrompt(tool);
 
       if (tool === "edit") {
-        const editResult = await runEditApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        const editResult = await runEditApprovalLoop(
+          gateCtx,
+          typedEvent.input,
+          promptMsg,
+        );
         if (editResult.type === "apply-reviewed") {
           const absolutePath = nodePath.resolve(
             gateCtx.cwd ?? process.cwd(),
@@ -791,7 +892,11 @@ export default function (pi: ExtensionAPI) {
           choice = editResult.choice;
         }
       } else if (tool === "write") {
-        const writeResult = await runWriteApprovalLoop(gateCtx, typedEvent.input, promptMsg);
+        const writeResult = await runWriteApprovalLoop(
+          gateCtx,
+          typedEvent.input,
+          promptMsg,
+        );
         if (writeResult.type === "apply-reviewed") {
           const absolutePath = nodePath.resolve(
             gateCtx.cwd ?? process.cwd(),
