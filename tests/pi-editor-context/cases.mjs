@@ -12,6 +12,7 @@ import {
   runEditorContext,
   selectBranch,
 } from "../../scripts/pi-editor-context.mjs";
+import { openEditor } from "../../scripts/pi-editor-context-lib/editor-open.mjs";
 
 const FIXTURES_DIR = path.join(
   process.cwd(),
@@ -61,6 +62,21 @@ function parseFormattedBlocks(contextText) {
     .map((segment) => segment.trim())
     .filter(Boolean)
     .map((segment) => segment.split("\n"));
+}
+
+async function writeExecutable(filePath, content) {
+  await fs.writeFile(filePath, content, "utf8");
+  await fs.chmod(filePath, 0o755);
+}
+
+async function withPathPrefix(pathPrefix, run) {
+  const previousPath = process.env.PATH ?? "";
+  process.env.PATH = `${pathPrefix}:${previousPath}`;
+  try {
+    return await run();
+  } finally {
+    process.env.PATH = previousPath;
+  }
 }
 
 export const testCases = [
@@ -719,6 +735,167 @@ export const testCases = [
       assert(
         await exists(workingPath),
         "Persistent working file should remain on disk after export",
+      );
+    },
+  },
+  {
+    name: "editor-open-auto-fallback-preserves-contract-fields",
+    ac: ["AC-6"],
+    setup:
+      "Provide fake nvr/nvim binaries where nvr has no reachable server target.",
+    invocation:
+      "Call openEditor in auto mode with fake PATH and inspect returned fallback decision.",
+    assertions:
+      "Fallback decision keeps stable contract fields: effectiveMode, fallbackFrom, and nvr routing metadata.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-context-contract-fallback-");
+      const binDir = path.join(sandbox, "bin");
+      await fs.mkdir(binDir, { recursive: true });
+
+      const tempFile = path.join(sandbox, "working.md");
+      await fs.writeFile(tempFile, "Prompt body\n", "utf8");
+
+      await writeExecutable(
+        path.join(binDir, "nvr"),
+        "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.includes('--serverlist')) { process.stdout.write('\\n'); process.exit(0); }\nprocess.exit(2);\n",
+      );
+      await writeExecutable(
+        path.join(binDir, "nvim"),
+        "#!/usr/bin/env node\nprocess.exit(0);\n",
+      );
+
+      const decision = await withPathPrefix(binDir, async () =>
+        openEditor(tempFile, { openMode: "auto" }, { PWD: sandbox }),
+      );
+
+      assert(
+        decision.effectiveMode === "nvim",
+        "Fallback decision should use nvim effective mode",
+      );
+      assert(
+        decision.fallbackFrom === "nvr-no-target-server",
+        "Fallback decision should preserve fallbackFrom value",
+      );
+      assert(
+        decision.nvrServerAvailable === false,
+        "Fallback decision should expose nvrServerAvailable=false",
+      );
+      assert(
+        decision.nvrTargetServer === "",
+        "Fallback decision should preserve empty nvrTargetServer when unresolved",
+      );
+      assert(
+        decision.nvrServerSource === "none",
+        "Fallback decision should preserve nvr source metadata",
+      );
+      assert(
+        Array.isArray(decision.availableServers),
+        "Fallback decision should include availableServers metadata",
+      );
+      assert(
+        Array.isArray(decision.candidateServers),
+        "Fallback decision should include candidateServers metadata",
+      );
+      assert(
+        decision.paneOptionStatus === "owner-pane-missing",
+        "Fallback decision should preserve pane option status metadata",
+      );
+    },
+  },
+  {
+    name: "editor-open-auto-retry-preserves-nvr-retry-contract-fields",
+    ac: ["AC-6"],
+    setup:
+      "Provide fake nvr/nvim binaries where first nvr open fails with connection_lost and retry succeeds.",
+    invocation:
+      "Call openEditor in auto mode with resolvable server and inspect retry metadata.",
+    assertions:
+      "Successful nvr retry keeps stable fields including effectiveMode=nvr and nvrRetry payload.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-context-contract-retry-");
+      const binDir = path.join(sandbox, "bin");
+      const attemptFile = path.join(sandbox, "nvr-attempt.txt");
+      await fs.mkdir(binDir, { recursive: true });
+
+      const tempFile = path.join(sandbox, "working.md");
+      await fs.writeFile(tempFile, "Prompt body\n", "utf8");
+
+      await writeExecutable(
+        path.join(binDir, "nvr"),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const attemptFile = ${JSON.stringify(attemptFile)};
+if (args.includes('--serverlist')) {
+  process.stdout.write('SERVER_A\\n');
+  process.exit(0);
+}
+let attempt = 0;
+try {
+  attempt = Number(fs.readFileSync(attemptFile, 'utf8')) || 0;
+} catch {}
+attempt += 1;
+fs.writeFileSync(attemptFile, String(attempt), 'utf8');
+if (attempt === 1) {
+  process.stderr.write('connection_lost simulated\\n');
+  process.exit(1);
+}
+process.exit(0);
+`,
+      );
+      await writeExecutable(
+        path.join(binDir, "nvim"),
+        "#!/usr/bin/env node\nprocess.exit(0);\n",
+      );
+
+      const decision = await withPathPrefix(binDir, async () =>
+        openEditor(
+          tempFile,
+          { openMode: "auto" },
+          { NVIM: "SERVER_A", PWD: sandbox },
+        ),
+      );
+
+      assert(
+        decision.effectiveMode === "nvr",
+        "Retry success should keep effectiveMode=nvr",
+      );
+      assert(
+        decision.command === "nvr",
+        "Retry success should report nvr command",
+      );
+      assert(
+        decision.waitMode === "remote-wait-silent",
+        "Retry success should preserve nvr wait mode",
+      );
+      assert(
+        decision.nvrTargetServer === "SERVER_A",
+        "Retry success should preserve selected nvr target server",
+      );
+      assert(
+        decision.nvrServerSource === "env:NVIM",
+        "Retry success should preserve target source metadata",
+      );
+      assert(
+        decision.nvrRetry?.attempted === true,
+        "Retry success should include nvrRetry.attempted=true",
+      );
+      assert(
+        decision.nvrRetry?.reason === "connection-lost",
+        "Retry success should include nvrRetry.reason=connection-lost",
+      );
+      assert(
+        typeof decision.nvrRetry?.firstError === "string" &&
+          decision.nvrRetry.firstError.includes("connection_lost"),
+        "Retry success should preserve first error message in nvrRetry.firstError",
+      );
+      assert(
+        decision.nvrRetry?.targetChanged === false,
+        "Retry success should preserve nvrRetry.targetChanged metadata",
+      );
+      assert(
+        !("fallbackFrom" in decision),
+        "Retry success should not include fallbackFrom when nvr ultimately succeeds",
       );
     },
   },

@@ -308,8 +308,8 @@ Produce `SUMMARY.md` with this exact structure:
 
 ### Phase B — Simplification (post-Phase-A only)
 
-- [ ] B1: Unify nvr arg + metadata construction helpers.
-- [ ] B2: Unify nvr normal/retry flow.
-- [ ] B3: Centralize nvim fallback path.
-- [ ] B4: Re-verify observable output contract fields remain unchanged.
-- [ ] B5: Run full verification and update SUMMARY evidence.
+- [x] B1: Unify nvr arg + metadata construction helpers.
+- [x] B2: Unify nvr normal/retry flow.
+- [x] B3: Centralize nvim fallback path.
+- [x] B4: Re-verify observable output contract fields remain unchanged.
+- [x] B5: Run full verification and update SUMMARY evidence.
