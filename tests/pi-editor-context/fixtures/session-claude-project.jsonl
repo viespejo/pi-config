@@ -1,0 +1,5 @@
+{"uuid":"c-001","parentUuid":null,"type":"user","timestamp":"2026-02-01T10:00:00.000Z","message":{"role":"user","content":"Necesito un plan de migración."}}
+{"uuid":"c-002","parentUuid":"c-001","type":"assistant","timestamp":"2026-02-01T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"Claro, propongo fases con validaciones."}]}}
+{"uuid":"c-003","parentUuid":"c-002","type":"progress","timestamp":"2026-02-01T10:01:30.000Z","data":{"kind":"hook"}}
+{"uuid":"c-004","parentUuid":"c-002","type":"user","timestamp":"2026-02-01T10:02:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Incluye rollback y responsables."}]}}
+{"uuid":"c-005","parentUuid":"c-004","type":"assistant","timestamp":"2026-02-01T10:03:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read"},{"type":"text","text":"Perfecto. Agrego rollback, owners y checklist de verificación."}]}}

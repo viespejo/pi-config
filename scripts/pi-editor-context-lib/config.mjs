@@ -12,6 +12,7 @@ const DEFAULTS = {
   enabled: true,
   messages: 12,
   sessionFile: "",
+  sessionSource: "auto",
   includeAssistant: true,
   maxChars: 12000,
   maxPerMessage: 2000,
@@ -71,6 +72,10 @@ function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+function pickSessionSource(source) {
+  return ["auto", "pi", "claude"].includes(source) ? source : "auto";
+}
+
 async function resolveConfigDetailed(env, cwd, overrides = {}) {
   const userConfigPath =
     overrides.userConfigPath ??
@@ -92,6 +97,8 @@ async function resolveConfigDetailed(env, cwd, overrides = {}) {
     enabled: toBool(env.PI_EDITOR_CONTEXT_ENABLED, undefined),
     messages: toInt(env.PI_EDITOR_CONTEXT_MESSAGES, undefined),
     sessionFile: env.PI_EDITOR_CONTEXT_SESSION_FILE,
+    sessionSource:
+      env.PI_EDITOR_CONTEXT_SESSION_SOURCE || env.PI_EDITOR_SESSION_SOURCE,
     includeAssistant: toBool(
       env.PI_EDITOR_CONTEXT_INCLUDE_ASSISTANT,
       undefined,
@@ -136,6 +143,10 @@ async function resolveConfigDetailed(env, cwd, overrides = {}) {
   );
   merged.showTime = toBool(merged.showTime, DEFAULTS.showTime);
   merged.debug = toBool(merged.debug, DEFAULTS.debug);
+
+  merged.sessionSource = pickSessionSource(
+    String(merged.sessionSource ?? DEFAULTS.sessionSource),
+  );
 
   merged.openMode = pickOpenMode(String(merged.openMode ?? DEFAULTS.openMode));
   merged.workingMode = pickWorkingMode(

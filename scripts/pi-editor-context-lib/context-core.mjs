@@ -118,10 +118,18 @@ function buildContext(branchEntries, config) {
   let perMessageTruncated = 0;
 
   for (const entry of branchEntries) {
-    if (entry?.type !== "message") continue;
+    const entryType = typeof entry?.type === "string" ? entry.type : "";
+    const role =
+      entry?.message?.role === "user" || entry?.message?.role === "assistant"
+        ? entry.message.role
+        : entryType === "user" || entryType === "assistant"
+          ? entryType
+          : "";
+
+    const isMessageEntry = entryType === "message" || role === "user" || role === "assistant";
+    if (!isMessageEntry) continue;
     messageEntries += 1;
 
-    const role = entry?.message?.role;
     if (role !== "user" && role !== "assistant") {
       skippedByRole += 1;
       continue;

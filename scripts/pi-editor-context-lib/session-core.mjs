@@ -21,11 +21,15 @@ function getEntryTimestamp(entry) {
 }
 
 function entryId(entry) {
-  return typeof entry?.id === "string" ? entry.id : "";
+  if (typeof entry?.id === "string") return entry.id;
+  if (typeof entry?.uuid === "string") return entry.uuid;
+  return "";
 }
 
 function entryParentId(entry) {
-  return typeof entry?.parentId === "string" ? entry.parentId : "";
+  if (typeof entry?.parentId === "string") return entry.parentId;
+  if (typeof entry?.parentUuid === "string") return entry.parentUuid;
+  return "";
 }
 
 function extractTextFromBlock(block) {

@@ -205,6 +205,63 @@ export const testCases = [
     },
   },
   {
+    name: "parses-claude-jsonl-with-uuid-parentuuid-and-role-types",
+    ac: ["AC-2"],
+    setup:
+      "Load Claude-style JSONL fixture with uuid/parentUuid and entry.type user/assistant/progress.",
+    invocation: "Parse, select branch, and build context.",
+    assertions:
+      "Context includes visible user/assistant text and excludes non-visible/tool/progress content.",
+    run: async () => {
+      const fixturePath = path.join(
+        FIXTURES_DIR,
+        "session-claude-project.jsonl",
+      );
+      const entries = await parseJsonlSession(fixturePath);
+      const { branchEntries } = selectBranch(entries);
+
+      const context = buildContext(branchEntries, {
+        ...DEFAULTS,
+        enabled: true,
+        includeAssistant: true,
+        messages: 20,
+        maxChars: 10_000,
+        maxPerMessage: 2_000,
+      });
+
+      assertIncludes(
+        context.contextText,
+        "Necesito un plan de migración.",
+        "Claude user message should be included",
+      );
+      assertIncludes(
+        context.contextText,
+        "Claro, propongo fases con validaciones.",
+        "Claude assistant visible text should be included",
+      );
+      assertIncludes(
+        context.contextText,
+        "Incluye rollback y responsables.",
+        "Claude follow-up user message should be included",
+      );
+      assertIncludes(
+        context.contextText,
+        "Perfecto. Agrego rollback, owners y checklist de verificación.",
+        "Claude assistant final message should be included",
+      );
+      assertNotIncludes(
+        context.contextText,
+        "hidden",
+        "Claude thinking blocks should be excluded",
+      );
+      assertNotIncludes(
+        context.contextText,
+        "tool_use",
+        "Claude tool blocks should be excluded",
+      );
+    },
+  },
+  {
     name: "exports-only-prompt-region-after-marker",
     ac: ["AC-3"],
     setup:

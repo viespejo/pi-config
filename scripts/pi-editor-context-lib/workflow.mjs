@@ -114,6 +114,20 @@ async function runEditorContext(options) {
       },
     });
 
+    await appendDebug(config.debug, "env-signals", {
+      CLAUDECODE: env.CLAUDECODE,
+      CLAUDE_CODE_ENTRYPOINT: env.CLAUDE_CODE_ENTRYPOINT,
+      CLAUDE_PROJECT_DIR: env.CLAUDE_PROJECT_DIR,
+      CLAUDE_SESSION_ID: env.CLAUDE_SESSION_ID,
+      CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
+      PI_CODING_AGENT_DIR: env.PI_CODING_AGENT_DIR,
+      PI_EDITOR_CONTEXT_SESSION_SOURCE: env.PI_EDITOR_CONTEXT_SESSION_SOURCE,
+      PI_EDITOR_SESSION_SOURCE: env.PI_EDITOR_SESSION_SOURCE,
+      PI_EDITOR_SESSIONS_DIR: env.PI_EDITOR_SESSIONS_DIR,
+      PWD: env.PWD,
+      PI_EDITOR_CWD_HINT: env.PI_EDITOR_CWD_HINT,
+    });
+
     const originalPromptRaw = await fs.readFile(tempFile, "utf8");
     originalPrompt = trimSingleTrailingNewline(normalizeEol(originalPromptRaw));
 
