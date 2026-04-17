@@ -13,11 +13,14 @@ This document records the PLAN-01 Task 3 integration done in the user Neovim con
 
 A PI-scoped environment injection is configured under `cli.tools.pi.env`:
 
-- `EDITOR = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
-- `VISUAL = "/home/its32ve1/code/pi-config/scripts/pi-editor-context"`
+- `EDITOR = "/home/its32ve1/code/pi-config/scripts/pi-editor"`
+- `VISUAL = "/home/its32ve1/code/pi-config/scripts/pi-editor"`
 - `PI_EDITOR_OWNER_PANE = vim.env.TMUX_PANE or ""`
 - `PI_EDITOR_OWNER_KEY = tostring(vim.g.pi_editor_owner_key or "")`
 - `PI_EDITOR_OPEN_MODE = "nvr"`
+
+`pi-editor` now supports explicit modes (`--mode context|plain`).
+When Sidekick invokes `EDITOR`/`VISUAL` with only `<temp-file>`, `pi-editor` defaults to `context` mode.
 
 A concise English comment clarifies this env scope is PI-only.
 

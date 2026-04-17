@@ -4,7 +4,7 @@
   "description": "My PI Config",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/pi-editor-context/run.mjs",
+    "test": "node tests/pi-editor/run.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

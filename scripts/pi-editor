@@ -1,17 +1,14 @@
 #!/usr/bin/env sh
-# PI external editor launcher.
+# PI external editor launcher (unified wrapper).
 #
 # Intended usage:
-#   EDITOR=/absolute/path/to/scripts/pi-editor-context
-#   VISUAL=/absolute/path/to/scripts/pi-editor-context
+#   EDITOR=/absolute/path/to/scripts/pi-editor
+#   VISUAL=/absolute/path/to/scripts/pi-editor
 #
-# PI will invoke this script with the temp file path. This launcher delegates
-# to the Node wrapper that injects local context and exports only the prompt.
-#
-# Optional diagnostics:
-#   PI_EDITOR_DEBUG=1
-# Debug log location:
-#   ~/.local/state/pi-editor/debug.log
+# Supported invocations:
+#   pi-editor <pi-temp-file>                 # default mode: context (backward compatible)
+#   pi-editor --mode context <pi-temp-file> # explicit context mode
+#   pi-editor --mode plain <pi-temp-file>   # plain mode (no context injection)
 
 set -eu
 
@@ -31,4 +28,4 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-exec node "$REPO_ROOT/scripts/pi-editor-context.mjs" "$@"
+exec node "$REPO_ROOT/scripts/pi-editor.mjs" "$@"

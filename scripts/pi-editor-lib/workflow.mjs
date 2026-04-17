@@ -67,10 +67,10 @@ async function createWorkingPath(config, originalTempPath) {
   if (config.workingMode === "persistent") {
     const parent = path.dirname(originalTempPath);
     const base = path.basename(originalTempPath);
-    return path.join(parent, `${base}.pi-editor-context.md`);
+    return path.join(parent, `${base}.pi-editor.md`);
   }
 
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-editor-context-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-editor-"));
   return path.join(dir, "working.md");
 }
 
@@ -89,7 +89,7 @@ async function runEditorContext(options) {
   } = options;
 
   if (!tempFile) {
-    throw new Error("Usage: pi-editor-context.mjs <pi-temp-file>");
+    throw new Error("Usage: pi-editor.mjs [--mode context|plain] <pi-temp-file>");
   }
 
   const cwd = resolveCwd(env);
@@ -121,7 +121,6 @@ async function runEditorContext(options) {
       CLAUDE_SESSION_ID: env.CLAUDE_SESSION_ID,
       CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
       PI_CODING_AGENT_DIR: env.PI_CODING_AGENT_DIR,
-      PI_EDITOR_CONTEXT_SESSION_SOURCE: env.PI_EDITOR_CONTEXT_SESSION_SOURCE,
       PI_EDITOR_SESSION_SOURCE: env.PI_EDITOR_SESSION_SOURCE,
       PI_EDITOR_SESSIONS_DIR: env.PI_EDITOR_SESSIONS_DIR,
       PWD: env.PWD,

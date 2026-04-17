@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 import {
   buildContext,
@@ -10,14 +11,16 @@ import {
   parseJsonlSession,
   resolveConfig,
   runEditorContext,
+  runPiEditor,
+  runPlainEditor,
   selectBranch,
-} from "../../scripts/pi-editor-context.mjs";
-import { openEditor } from "../../scripts/pi-editor-context-lib/editor-open.mjs";
+} from "../../scripts/pi-editor.mjs";
+import { openEditor } from "../../scripts/pi-editor-lib/editor-open.mjs";
 
 const FIXTURES_DIR = path.join(
   process.cwd(),
   "tests",
-  "pi-editor-context",
+  "pi-editor",
   "fixtures",
 );
 
@@ -316,12 +319,12 @@ export const testCases = [
     assertions:
       "Env > project > user > defaults precedence is applied per field.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-config-");
+      const sandbox = await makeTempDir("pi-editor-config-");
       const userConfigPath = path.join(
         sandbox,
         "home",
         ".config",
-        "pi-editor-context",
+        "pi-editor",
         "config.json",
       );
       const projectConfigPath = path.join(
@@ -367,9 +370,9 @@ export const testCases = [
       );
 
       const env = {
-        PI_EDITOR_CONTEXT_MESSAGES: "9",
-        PI_EDITOR_CONTEXT_INCLUDE_ASSISTANT: "false",
-        PI_EDITOR_CONTEXT_MAX_CHARS: "3333",
+        PI_EDITOR_MESSAGES: "9",
+        PI_EDITOR_INCLUDE_ASSISTANT: "false",
+        PI_EDITOR_MAX_CHARS: "3333",
         PI_EDITOR_ERROR_POLICY: "hard",
       };
 
@@ -407,7 +410,7 @@ export const testCases = [
     assertions:
       "No hard failure occurs; fallback editor is invoked; prompt remains editable.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-soft-");
+      const sandbox = await makeTempDir("pi-editor-soft-");
       const tempFile = path.join(sandbox, "prompt.md");
       const malformedSessionPath = path.join(sandbox, "malformed.jsonl");
 
@@ -422,9 +425,9 @@ export const testCases = [
       const result = await runEditorContext({
         tempFile,
         env: {
-          PI_EDITOR_CONTEXT_SESSION_FILE: malformedSessionPath,
+          PI_EDITOR_SESSION_FILE: malformedSessionPath,
           PI_EDITOR_ERROR_POLICY: "soft",
-          PI_EDITOR_CONTEXT_ENABLED: "true",
+          PI_EDITOR_ENABLED: "true",
           PI_EDITOR_WORKING_MODE: "temp",
         },
         openEditorImpl: () => {
@@ -531,7 +534,7 @@ export const testCases = [
     assertions:
       "Flow succeeds and accepts editorDecision metadata shape while exporting only prompt content.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-routing-");
+      const sandbox = await makeTempDir("pi-editor-routing-");
       const tempFile = path.join(sandbox, "prompt.md");
       const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
       await fs.writeFile(tempFile, "Prompt before routing test\n", "utf8");
@@ -542,8 +545,8 @@ export const testCases = [
       const result = await runEditorContext({
         tempFile,
         env: {
-          PI_EDITOR_CONTEXT_ENABLED: "true",
-          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_ENABLED: "true",
+          PI_EDITOR_SESSION_FILE: fixturePath,
           PI_EDITOR_OPEN_MODE: "auto",
           PI_EDITOR_WORKING_MODE: "temp",
           PWD: sandbox,
@@ -604,7 +607,7 @@ export const testCases = [
     assertions:
       "Soft mode invokes fallback and exports prompt-only output without leaking context edits.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-fallback-");
+      const sandbox = await makeTempDir("pi-editor-fallback-");
       const tempFile = path.join(sandbox, "prompt.md");
       const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
       await fs.writeFile(tempFile, "Prompt before fallback test\n", "utf8");
@@ -615,8 +618,8 @@ export const testCases = [
       const result = await runEditorContext({
         tempFile,
         env: {
-          PI_EDITOR_CONTEXT_ENABLED: "true",
-          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_ENABLED: "true",
+          PI_EDITOR_SESSION_FILE: fixturePath,
           PI_EDITOR_OPEN_MODE: "auto",
           PI_EDITOR_WORKING_MODE: "temp",
           PI_EDITOR_ERROR_POLICY: "soft",
@@ -681,7 +684,7 @@ export const testCases = [
     assertions:
       "Temporary working directory is removed after successful export.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-temp-working-");
+      const sandbox = await makeTempDir("pi-editor-temp-working-");
       const tempFile = path.join(sandbox, "prompt.md");
       const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
       await fs.writeFile(
@@ -695,8 +698,8 @@ export const testCases = [
       const result = await runEditorContext({
         tempFile,
         env: {
-          PI_EDITOR_CONTEXT_ENABLED: "true",
-          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_ENABLED: "true",
+          PI_EDITOR_SESSION_FILE: fixturePath,
           PI_EDITOR_WORKING_MODE: "temp",
           PI_EDITOR_OPEN_MODE: "auto",
           PWD: sandbox,
@@ -739,7 +742,7 @@ export const testCases = [
     assertions: "Persistent working file remains available after export.",
     run: async () => {
       const sandbox = await makeTempDir(
-        "pi-editor-context-persistent-working-",
+        "pi-editor-persistent-working-",
       );
       const tempFile = path.join(sandbox, "prompt.md");
       const fixturePath = path.join(FIXTURES_DIR, "session-branching.jsonl");
@@ -754,8 +757,8 @@ export const testCases = [
       const result = await runEditorContext({
         tempFile,
         env: {
-          PI_EDITOR_CONTEXT_ENABLED: "true",
-          PI_EDITOR_CONTEXT_SESSION_FILE: fixturePath,
+          PI_EDITOR_ENABLED: "true",
+          PI_EDITOR_SESSION_FILE: fixturePath,
           PI_EDITOR_WORKING_MODE: "persistent",
           PI_EDITOR_OPEN_MODE: "auto",
           PWD: sandbox,
@@ -786,8 +789,8 @@ export const testCases = [
         "Persistent working path should be captured",
       );
       assert(
-        workingPath.endsWith(".pi-editor-context.md"),
-        "Persistent working file should use .pi-editor-context.md suffix",
+        workingPath.endsWith(".pi-editor.md"),
+        "Persistent working file should use .pi-editor.md suffix",
       );
       assert(
         await exists(workingPath),
@@ -805,7 +808,7 @@ export const testCases = [
     assertions:
       "Fallback decision keeps stable contract fields: effectiveMode, fallbackFrom, and nvr routing metadata.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-contract-fallback-");
+      const sandbox = await makeTempDir("pi-editor-contract-fallback-");
       const binDir = path.join(sandbox, "bin");
       await fs.mkdir(binDir, { recursive: true });
 
@@ -869,7 +872,7 @@ export const testCases = [
     assertions:
       "Successful nvr retry keeps stable fields including effectiveMode=nvr and nvrRetry payload.",
     run: async () => {
-      const sandbox = await makeTempDir("pi-editor-context-contract-retry-");
+      const sandbox = await makeTempDir("pi-editor-contract-retry-");
       const binDir = path.join(sandbox, "bin");
       const attemptFile = path.join(sandbox, "nvr-attempt.txt");
       await fs.mkdir(binDir, { recursive: true });
@@ -953,6 +956,197 @@ process.exit(0);
       assert(
         !("fallbackFrom" in decision),
         "Retry success should not include fallbackFrom when nvr ultimately succeeds",
+      );
+    },
+  },
+  {
+    name: "plain-wrapper-opens-with-shared-editor-layer-without-context-injection",
+    ac: ["AC-1", "AC-3"],
+    setup:
+      "Create temp prompt and fake nvr/nvim binaries where nvr has no server and nvim succeeds.",
+    invocation:
+      "Run runPlainEditor(tempFile) with PATH override so shared openEditor routing is exercised.",
+    assertions:
+      "Prompt remains unchanged and context markers are never injected in plain mode.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-plain-no-context-");
+      const binDir = path.join(sandbox, "bin");
+      await fs.mkdir(binDir, { recursive: true });
+
+      const tempFile = path.join(sandbox, "prompt.md");
+      const initialPrompt = "Plain prompt content should stay untouched.\n";
+      await fs.writeFile(tempFile, initialPrompt, "utf8");
+
+      await writeExecutable(
+        path.join(binDir, "nvr"),
+        "#!/usr/bin/env node\nconst args = process.argv.slice(2);\nif (args.includes('--serverlist')) { process.stdout.write('\\n'); process.exit(0); }\nprocess.exit(2);\n",
+      );
+      await writeExecutable(
+        path.join(binDir, "nvim"),
+        "#!/usr/bin/env node\nprocess.exit(0);\n",
+      );
+
+      const decision = await withPathPrefix(binDir, async () =>
+        runPlainEditor({
+          tempFile,
+          env: {
+            ...process.env,
+            PATH: `${binDir}:${process.env.PATH ?? ""}`,
+            PWD: sandbox,
+          },
+        }),
+      );
+
+      const exported = await fs.readFile(tempFile, "utf8");
+
+      assert(
+        decision.effectiveMode === "nvim",
+        "Plain wrapper should still return shared editor routing decision",
+      );
+      assert(
+        exported === initialPrompt,
+        "Plain wrapper must not rewrite prompt content on its own",
+      );
+      assertNotIncludes(
+        exported,
+        "PI_CONTEXT_START",
+        "Plain wrapper must not inject context markers",
+      );
+      assertNotIncludes(
+        exported,
+        "PI_PROMPT_START",
+        "Plain wrapper must not inject prompt markers",
+      );
+    },
+  },
+  {
+    name: "pi-editor-default-invocation-routes-to-context-mode",
+    ac: ["AC-1", "AC-2"],
+    setup: "Invoke pi-editor with legacy signature: pi-editor <temp-file>.",
+    invocation: "Run runPiEditor with a stubbed context implementation.",
+    assertions: "Default mode is context and temp-file is forwarded unchanged.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-default-context-");
+      const tempFile = path.join(sandbox, "prompt.md");
+
+      let contextCalled = false;
+      const result = await runPiEditor({
+        argv: [tempFile],
+        env: { ...process.env, PWD: sandbox },
+        runEditorContextImpl: async ({ tempFile: received }) => {
+          contextCalled = true;
+          assert(
+            received === tempFile,
+            "Legacy invocation must pass temp-file to context pipeline",
+          );
+          return { status: "ok", mode: "context" };
+        },
+      });
+
+      assert(contextCalled, "Legacy invocation should call context mode");
+      assert(
+        result?.status === "ok",
+        "Context pipeline result should be returned by pi-editor",
+      );
+    },
+  },
+  {
+    name: "pi-editor-explicit-context-mode-routes-to-context-pipeline",
+    ac: ["AC-2"],
+    setup: "Invoke pi-editor with --mode context <temp-file>.",
+    invocation: "Run runPiEditor with a stubbed context implementation.",
+    assertions: "Explicit context mode routes to context pipeline and does not touch plain path.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-explicit-context-");
+      const tempFile = path.join(sandbox, "prompt.md");
+
+      let contextCalled = false;
+      const result = await runPiEditor({
+        argv: ["--mode", "context", tempFile],
+        env: { ...process.env, PWD: sandbox },
+        runEditorContextImpl: async ({ tempFile: received }) => {
+          contextCalled = true;
+          assert(
+            received === tempFile,
+            "Explicit context mode must pass temp-file to context pipeline",
+          );
+          return { status: "ok", mode: "context" };
+        },
+        openEditorImpl: async () => {
+          throw new Error("Plain path must not run in explicit context mode");
+        },
+      });
+
+      assert(contextCalled, "Explicit context mode should call context pipeline");
+      assert(
+        result?.status === "ok",
+        "Explicit context mode should return context pipeline result",
+      );
+    },
+  },
+  {
+    name: "pi-editor-explicit-plain-mode-uses-shared-open-editor-layer",
+    ac: ["AC-2", "AC-3"],
+    setup: "Invoke pi-editor with --mode plain and stub config/editor open implementations.",
+    invocation: "Run runPiEditor(argv=[--mode, plain, <temp-file>]).",
+    assertions: "Plain mode resolves config and calls shared openEditor flow without context path.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-explicit-plain-");
+      const tempFile = path.join(sandbox, "prompt.md");
+
+      let resolveConfigCalled = false;
+      let openEditorCalled = false;
+
+      const decision = await runPiEditor({
+        argv: ["--mode", "plain", tempFile],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => {
+          resolveConfigCalled = true;
+          return { openMode: "auto" };
+        },
+        openEditorImpl: async (receivedPath, config) => {
+          openEditorCalled = true;
+          assert(
+            receivedPath === tempFile,
+            "Plain mode should call openEditor with provided temp-file",
+          );
+          assert(
+            config?.openMode === "auto",
+            "Plain mode should pass resolved editor config",
+          );
+          return { effectiveMode: "nvim" };
+        },
+        runEditorContextImpl: async () => {
+          throw new Error("Context path must not run in explicit plain mode");
+        },
+      });
+
+      assert(resolveConfigCalled, "Plain mode should resolve config");
+      assert(openEditorCalled, "Plain mode should call shared openEditor layer");
+      assert(
+        decision?.effectiveMode === "nvim",
+        "Plain mode should return openEditor decision",
+      );
+    },
+  },
+  {
+    name: "pi-editor-cli-without-args-returns-usage-and-exit-2",
+    ac: ["AC-2"],
+    setup: "Run pi-editor CLI entrypoint without required temp-file argument.",
+    invocation: "Spawn node scripts/pi-editor.mjs with no args.",
+    assertions: "CLI prints usage message and exits with status code 2.",
+    run: async () => {
+      const scriptPath = path.join(process.cwd(), "scripts", "pi-editor.mjs");
+      const result = spawnSync("node", [scriptPath], {
+        encoding: "utf8",
+      });
+
+      assert(result.status === 2, "pi-editor CLI without args must exit with code 2");
+      const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      assertIncludes(
+        combined,
+        "Usage: pi-editor.mjs [--mode context|plain] <pi-temp-file>",
+        "pi-editor CLI without args must print usage text",
       );
     },
   },

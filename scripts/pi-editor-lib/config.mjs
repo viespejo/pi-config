@@ -79,7 +79,7 @@ function pickSessionSource(source) {
 async function resolveConfigDetailed(env, cwd, overrides = {}) {
   const userConfigPath =
     overrides.userConfigPath ??
-    path.join(os.homedir(), ".config", "pi-editor-context", "config.json");
+    path.join(os.homedir(), ".config", "pi-editor", "config.json");
   const projectConfigPath =
     overrides.projectConfigPath ?? path.join(cwd, ".pi", "editor-context.json");
 
@@ -94,19 +94,15 @@ async function resolveConfigDetailed(env, cwd, overrides = {}) {
     projectConfig && typeof projectConfig === "object" ? projectConfig : {};
 
   const envConfig = {
-    enabled: toBool(env.PI_EDITOR_CONTEXT_ENABLED, undefined),
-    messages: toInt(env.PI_EDITOR_CONTEXT_MESSAGES, undefined),
-    sessionFile: env.PI_EDITOR_CONTEXT_SESSION_FILE,
-    sessionSource:
-      env.PI_EDITOR_CONTEXT_SESSION_SOURCE || env.PI_EDITOR_SESSION_SOURCE,
-    includeAssistant: toBool(
-      env.PI_EDITOR_CONTEXT_INCLUDE_ASSISTANT,
-      undefined,
-    ),
-    maxChars: toInt(env.PI_EDITOR_CONTEXT_MAX_CHARS, undefined),
-    maxPerMessage: toInt(env.PI_EDITOR_CONTEXT_MAX_PER_MESSAGE, undefined),
-    maxAgeDays: toInt(env.PI_EDITOR_CONTEXT_MAX_AGE_DAYS, undefined),
-    showTime: toBool(env.PI_EDITOR_CONTEXT_SHOW_TIME, undefined),
+    enabled: toBool(env.PI_EDITOR_ENABLED, undefined),
+    messages: toInt(env.PI_EDITOR_MESSAGES, undefined),
+    sessionFile: env.PI_EDITOR_SESSION_FILE,
+    sessionSource: env.PI_EDITOR_SESSION_SOURCE,
+    includeAssistant: toBool(env.PI_EDITOR_INCLUDE_ASSISTANT, undefined),
+    maxChars: toInt(env.PI_EDITOR_MAX_CHARS, undefined),
+    maxPerMessage: toInt(env.PI_EDITOR_MAX_PER_MESSAGE, undefined),
+    maxAgeDays: toInt(env.PI_EDITOR_MAX_AGE_DAYS, undefined),
+    showTime: toBool(env.PI_EDITOR_SHOW_TIME, undefined),
     openMode: env.PI_EDITOR_OPEN_MODE,
     workingMode: env.PI_EDITOR_WORKING_MODE,
     emptyPolicy: env.PI_EDITOR_EMPTY_POLICY,
