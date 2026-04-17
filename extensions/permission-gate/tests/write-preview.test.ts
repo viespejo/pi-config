@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
-import { computeWriteDiffPreviewLocal } from "../src/index.ts";
+import { computeWriteDiffPreviewLocal } from "../index.ts";
 
 describe("computeWriteDiffPreviewLocal", () => {
   it("returns an all-added diff when target file does not exist", async () => {

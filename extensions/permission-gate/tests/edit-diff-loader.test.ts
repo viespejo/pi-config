@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { loadComputeEditsDiffOnce } from "../src/edit-diff-loader.ts";
+import { loadComputeEditsDiffOnce } from "../edit-diff-loader.ts";
 
 describe("edit-diff-loader", () => {
   it("reuses a single in-flight promise", () => {

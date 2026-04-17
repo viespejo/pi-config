@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { summarizeEditsForPrompt } from "../src/edit-preview.ts";
+import { summarizeEditsForPrompt } from "../edit-preview.ts";
 
 describe("edit-preview", () => {
   it("returns unknown-format message when edits is not an array", () => {

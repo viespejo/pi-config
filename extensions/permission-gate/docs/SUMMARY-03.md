@@ -6,13 +6,13 @@ Implemented bash-hardening for `permission-gate` with deterministic rule loading
 
 ## 2) Files changed
 
-- `extensions/permission-gate/src/permission-rules.ts`
+- `extensions/permission-gate/permission-rules.ts`
   - Added settings loading from global/local Pi settings, local-overrides-global replacement, bash-segment rule evaluation, cache/reload hooks.
-- `extensions/permission-gate/src/index.ts`
+- `extensions/permission-gate/index.ts`
   - Integrated hardened bash decision order, hard-deny/high-risk runtime orchestration, and `/pgate` command handlers.
-- `extensions/permission-gate/src/gate-policy.ts`
+- `extensions/permission-gate/gate-policy.ts`
   - Updated bash option sets (`Run once/Block`, high-risk variants) while preserving non-bash session behavior.
-- `extensions/permission-gate/src/prompt-messages.ts`
+- `extensions/permission-gate/prompt-messages.ts`
   - Added bash-specific prompt copy and typed confirmation labels.
 - `extensions/permission-gate/tests/tool-call.test.ts`
   - Added/updated end-to-end behavior tests for hard-deny, precedence, local override, segmentation, high-risk flow, and `/pgate` operations.

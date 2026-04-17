@@ -6,7 +6,7 @@ import {
   isAlwaysAllowedTool,
   shouldBypassPromptForSession,
   supportsSessionAllow,
-} from "../src/gate-policy.ts";
+} from "../gate-policy.ts";
 
 describe("gate-policy", () => {
   it("defines the expected always-allow tools", () => {

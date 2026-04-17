@@ -38,9 +38,9 @@
 
 ## 2) Files changed (exact paths)
 
-- `extensions/permission-gate/src/index.ts`
-- `extensions/permission-gate/src/prompt-messages.ts`
-- `extensions/permission-gate/src/neovim-review.ts`
+- `extensions/permission-gate/index.ts`
+- `extensions/permission-gate/prompt-messages.ts`
+- `extensions/permission-gate/neovim-review.ts`
 - `extensions/permission-gate/tests/prompt-messages.test.ts`
 - `extensions/permission-gate/tests/tool-call.test.ts`
 - `extensions/permission-gate/tests/neovim-review.test.ts`

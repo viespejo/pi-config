@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
-import { computeEditsDiffLocalFallback } from "../src/edit-diff.ts";
+import { computeEditsDiffLocalFallback } from "../edit-diff.ts";
 
 describe("edit-diff", () => {
   it("returns diff for a valid unique edit", async () => {

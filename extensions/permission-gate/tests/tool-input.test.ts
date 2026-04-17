@@ -4,7 +4,7 @@ import {
   extractEditInput,
   extractPathFromInput,
   extractWriteInput,
-} from "../src/tool-input.ts";
+} from "../tool-input.ts";
 
 describe("tool-input", () => {
   it("extracts path from path first", () => {

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
-import { reviewInNeovim } from "../src/neovim-review.ts";
+import { reviewInNeovim } from "../neovim-review.ts";
 
 async function exists(path: string) {
   try {

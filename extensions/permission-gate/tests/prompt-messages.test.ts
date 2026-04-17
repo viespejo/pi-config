@@ -27,7 +27,7 @@ import {
   previewUnavailablePrompt,
   previewUnavailableWithSourcePrompt,
   unexpectedPreviewErrorPrompt,
-} from "../src/prompt-messages.ts";
+} from "../prompt-messages.ts";
 
 describe("prompt-messages", () => {
   it("exposes expected approval options and deny labels", () => {

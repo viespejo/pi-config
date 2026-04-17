@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
-import permissionGateExtension from "../src/index.ts";
+import permissionGateExtension from "../index.ts";
 import {
   APPROVAL_OPTION_NO,
   APPROVAL_OPTION_REVIEW_NVIM,
@@ -12,8 +12,8 @@ import {
   APPROVAL_OPTION_YES_SESSION,
   REVIEW_OPTION_APPLY,
   REVIEW_OPTION_BACK,
-} from "../src/prompt-messages.ts";
-import { clearPermissionStateCache } from "../src/permission-rules.ts";
+} from "../prompt-messages.ts";
+import { clearPermissionStateCache } from "../permission-rules.ts";
 
 type Handler = (event: any, ctx: any) => any | Promise<any>;
 
