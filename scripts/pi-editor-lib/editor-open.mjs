@@ -269,13 +269,15 @@ const FOLD_LUA_CMD =
 const NVR_REMOTE_COMMANDS = ["+setlocal bufhidden=delete", `+${FOLD_LUA_CMD}`];
 const NVIM_INIT_ARGS = ["-c", "setlocal bufhidden=delete", "-c", FOLD_LUA_CMD];
 
-function makeNvrArgs(targetServer, filePath) {
+function makeNvrArgs(targetServer, filePath, options = {}) {
+  const waitArg = options.noWait ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
+
   return [
     "--nostart",
     "--servername",
     targetServer,
     ...NVR_PRE_OPEN_ARGS,
-    NVR_WAIT_ARG,
+    waitArg,
     ...NVR_REMOTE_COMMANDS,
     filePath,
   ];
@@ -380,9 +382,10 @@ function buildNvrPassthroughEditorArgs(editorArgs) {
   ];
 }
 
-function makeNvrPassthroughArgs(targetServer, editorArgs) {
+function makeNvrPassthroughArgs(targetServer, editorArgs, options = {}) {
   const nvrEditorArgs = buildNvrPassthroughEditorArgs(editorArgs);
-  const waitArg = isDiffEditorArgs(editorArgs) ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
+  const waitArg =
+    isDiffEditorArgs(editorArgs) || options.noWait ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
 
   return [
     "--nostart",
@@ -512,8 +515,11 @@ async function openViaNvrWithRetry(filePath, env, options = {}) {
   const preferFirstErrorOnRetryFailure = Boolean(
     options.preferFirstErrorOnRetryFailure,
   );
+  const noWait = Boolean(options.noWait);
 
-  const nvrArgs = makeNvrArgs(initialResolution.targetServer, filePath);
+  const nvrArgs = makeNvrArgs(initialResolution.targetServer, filePath, {
+    noWait,
+  });
 
   try {
     runEditorCommand("nvr", nvrArgs, { captureOutput: true });
@@ -542,7 +548,9 @@ async function openViaNvrWithRetry(filePath, env, options = {}) {
       };
     }
 
-    const retryArgs = makeNvrArgs(retryResolution.targetServer, filePath);
+    const retryArgs = makeNvrArgs(retryResolution.targetServer, filePath, {
+      noWait,
+    });
 
     try {
       runEditorCommand("nvr", retryArgs, { captureOutput: true });
@@ -569,8 +577,11 @@ async function openViaNvrArgsWithRetry(editorArgs, env, options = {}) {
   const preferFirstErrorOnRetryFailure = Boolean(
     options.preferFirstErrorOnRetryFailure,
   );
+  const noWait = Boolean(options.noWait);
 
-  const nvrArgs = makeNvrPassthroughArgs(initialResolution.targetServer, editorArgs);
+  const nvrArgs = makeNvrPassthroughArgs(initialResolution.targetServer, editorArgs, {
+    noWait,
+  });
 
   try {
     runEditorCommand("nvr", nvrArgs, { captureOutput: true });
@@ -602,6 +613,7 @@ async function openViaNvrArgsWithRetry(editorArgs, env, options = {}) {
     const retryArgs = makeNvrPassthroughArgs(
       retryResolution.targetServer,
       editorArgs,
+      { noWait },
     );
 
     try {
@@ -624,7 +636,9 @@ async function openViaNvrArgsWithRetry(editorArgs, env, options = {}) {
   }
 }
 
-async function openEditor(filePath, config, env = process.env) {
+async function openEditor(filePath, config, env = process.env, options = {}) {
+  const noWait = Boolean(options.noWait);
+
   if (config.openMode === "nvr") {
     if (!commandAvailable("nvr")) {
       throw new Error("nvr mode requested, but nvr is not available in PATH");
@@ -644,6 +658,7 @@ async function openEditor(filePath, config, env = process.env) {
     const nvrResult = await openViaNvrWithRetry(filePath, env, {
       initialResolution: nvrResolution,
       preferFirstErrorOnRetryFailure: false,
+      noWait,
     });
 
     if (!nvrResult.ok) {
@@ -654,7 +669,7 @@ async function openEditor(filePath, config, env = process.env) {
       requestedMode: config.openMode,
       effectiveMode: "nvr",
       command: "nvr",
-      waitMode: "remote-wait-silent",
+      waitMode: noWait ? "remote-silent" : "remote-wait-silent",
       ...makeNvrRoutingMetadata(nvrResult.resolution),
       ...(nvrResult.nvrRetry ? { nvrRetry: nvrResult.nvrRetry } : {}),
     };
@@ -686,6 +701,7 @@ async function openEditor(filePath, config, env = process.env) {
     const nvrResult = await openViaNvrWithRetry(filePath, env, {
       initialResolution: nvrResolution,
       preferFirstErrorOnRetryFailure: true,
+      noWait,
     });
 
     if (nvrResult.ok) {
@@ -693,7 +709,7 @@ async function openEditor(filePath, config, env = process.env) {
         requestedMode: config.openMode,
         effectiveMode: "nvr",
         command: "nvr",
-        waitMode: "remote-wait-silent",
+        waitMode: noWait ? "remote-silent" : "remote-wait-silent",
         ...makeNvrRoutingMetadata(nvrResult.resolution),
         ...(nvrResult.nvrRetry ? { nvrRetry: nvrResult.nvrRetry } : {}),
       };
@@ -712,10 +728,12 @@ async function openEditor(filePath, config, env = process.env) {
   });
 }
 
-async function openEditorArgs(editorArgs, config, env = process.env) {
+async function openEditorArgs(editorArgs, config, env = process.env, options = {}) {
   if (!Array.isArray(editorArgs) || editorArgs.length < 1) {
     throw new Error("openEditorArgs requires at least one editor argument");
   }
+
+  const noWait = Boolean(options.noWait);
 
   if (config.openMode === "nvr") {
     if (!commandAvailable("nvr")) {
@@ -736,6 +754,7 @@ async function openEditorArgs(editorArgs, config, env = process.env) {
     const nvrResult = await openViaNvrArgsWithRetry(editorArgs, env, {
       initialResolution: nvrResolution,
       preferFirstErrorOnRetryFailure: false,
+      noWait,
     });
 
     if (!nvrResult.ok) {
@@ -746,7 +765,7 @@ async function openEditorArgs(editorArgs, config, env = process.env) {
       requestedMode: config.openMode,
       effectiveMode: "nvr",
       command: "nvr",
-      waitMode: isDiffEditorArgs(editorArgs)
+      waitMode: isDiffEditorArgs(editorArgs) || noWait
         ? "remote-silent"
         : "remote-wait-silent",
       ...makeNvrRoutingMetadata(nvrResult.resolution),
@@ -780,6 +799,7 @@ async function openEditorArgs(editorArgs, config, env = process.env) {
     const nvrResult = await openViaNvrArgsWithRetry(editorArgs, env, {
       initialResolution: nvrResolution,
       preferFirstErrorOnRetryFailure: true,
+      noWait,
     });
 
     if (nvrResult.ok) {
@@ -787,7 +807,7 @@ async function openEditorArgs(editorArgs, config, env = process.env) {
         requestedMode: config.openMode,
         effectiveMode: "nvr",
         command: "nvr",
-        waitMode: isDiffEditorArgs(editorArgs)
+        waitMode: isDiffEditorArgs(editorArgs) || noWait
           ? "remote-silent"
           : "remote-wait-silent",
         ...makeNvrRoutingMetadata(nvrResult.resolution),
@@ -808,4 +828,30 @@ async function openEditorArgs(editorArgs, config, env = process.env) {
   });
 }
 
-export { isNvrConnectionLostError, openEditor, openEditorArgs };
+function buildDiffEditorArgs(oldFilePath, newFilePath, extraArgs = []) {
+  const oldFile = String(oldFilePath ?? "").trim();
+  const newFile = String(newFilePath ?? "").trim();
+
+  if (!oldFile || !newFile) {
+    throw new Error("openDiffEditor requires both oldFilePath and newFilePath");
+  }
+
+  const normalizedExtraArgs = Array.isArray(extraArgs)
+    ? extraArgs.map((arg) => String(arg ?? "")).filter(Boolean)
+    : [];
+
+  return ["-d", oldFile, newFile, ...normalizedExtraArgs];
+}
+
+async function openDiffEditor(
+  oldFilePath,
+  newFilePath,
+  extraArgs = [],
+  config,
+  env = process.env,
+) {
+  const editorArgs = buildDiffEditorArgs(oldFilePath, newFilePath, extraArgs);
+  return openEditorArgs(editorArgs, config, env);
+}
+
+export { isNvrConnectionLostError, openDiffEditor, openEditor, openEditorArgs };

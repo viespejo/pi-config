@@ -820,6 +820,32 @@ const ensurePiEditorPlainModeArgs = (args: string[]): string[] => {
   return ["--mode", "plain", ...args];
 };
 
+const stripPiEditorModeArgs = (args: string[]): string[] => {
+  const nextArgs = [...args];
+  for (let i = 0; i < nextArgs.length; i += 1) {
+    if (nextArgs[i] === "--mode") {
+      nextArgs.splice(i, 2);
+      break;
+    }
+  }
+  return nextArgs;
+};
+
+const buildPiEditorDiffArgs = (
+  args: string[],
+  originalFile: string,
+  workingFile: string,
+): string[] => {
+  const extraArgs = stripPiEditorModeArgs(args);
+  return [
+    "--mode",
+    "diff",
+    originalFile,
+    workingFile,
+    ...(extraArgs.length > 0 ? ["--", ...extraArgs] : []),
+  ];
+};
+
 const openExternalEditor = (
   tui: TUI,
   editorCmd: string,
@@ -861,9 +887,13 @@ const openExternalDiff = (
   const baseArgs = isPiEditorExecutable(executable)
     ? ensurePiEditorPlainModeArgs(args)
     : [...args];
-  const diffArgs = [...baseArgs];
+  const diffArgs = isPiEditorExecutable(executable)
+    ? buildPiEditorDiffArgs(baseArgs, originalFile, workingFile)
+    : [...baseArgs];
 
-  if (isVimLikeEditor(editorName) || isPiEditorExecutable(executable)) {
+  if (isPiEditorExecutable(executable)) {
+    // already prepared as: pi-editor --mode diff <old> <new> [-- <extra-args...>]
+  } else if (isVimLikeEditor(editorName)) {
     diffArgs.push("-d", originalFile, workingFile);
   } else if (
     editorName === "code" ||
@@ -920,11 +950,15 @@ const buildRevealArgs = (
   targetDirectory: string,
 ): string[] => {
   const editorName = path.basename(executable).toLowerCase();
-  const baseArgs = isPiEditorExecutable(executable)
-    ? ensurePiEditorPlainModeArgs(args)
-    : [...args];
 
-  if (isVimLikeEditor(editorName) || isPiEditorExecutable(executable)) {
+  if (isPiEditorExecutable(executable)) {
+    const baseArgs = ensurePiEditorPlainModeArgs(args);
+    return ["--mode", "plain", "--no-wait", ...stripPiEditorModeArgs(baseArgs), "+Oil", targetDirectory];
+  }
+
+  const baseArgs = [...args];
+
+  if (isVimLikeEditor(editorName)) {
     return [...baseArgs, "+Oil", targetDirectory];
   }
 

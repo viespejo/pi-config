@@ -1130,10 +1130,11 @@ process.exit(0);
     },
   },
   {
-    name: "pi-editor-plain-mode-passthrough-forwards-multiple-editor-args",
+    name: "pi-editor-plain-mode-passthrough-forwards-generic-editor-args",
     ac: ["AC-2", "AC-3"],
-    setup: "Invoke pi-editor with --mode plain and multiple editor arguments.",
-    invocation: "Run runPiEditor(argv=[--mode, plain, -d, a.ts, b.ts]).",
+    setup: "Invoke pi-editor with --mode plain and generic editor arguments.",
+    invocation:
+      "Run runPiEditor(argv=[--mode, plain, +set number, README.md]).",
     assertions: "Plain mode forwards all args to shared passthrough layer unchanged.",
     run: async () => {
       const sandbox = await makeTempDir("pi-editor-plain-passthrough-");
@@ -1142,7 +1143,7 @@ process.exit(0);
       let openEditorArgsCalled = false;
 
       const decision = await runPiEditor({
-        argv: ["--mode", "plain", "-d", "a.ts", "b.ts"],
+        argv: ["--mode", "plain", "+set", "number", "README.md"],
         env: { ...process.env, PWD: sandbox },
         resolveConfigImpl: async () => {
           resolveConfigCalled = true;
@@ -1155,7 +1156,7 @@ process.exit(0);
             "Plain passthrough should receive editor args array",
           );
           assert(
-            receivedArgs.join("|") === "-d|a.ts|b.ts",
+            receivedArgs.join("|") === "+set|number|README.md",
             "Plain passthrough should forward all editor args unchanged",
           );
           assert(
@@ -1181,6 +1182,243 @@ process.exit(0);
     },
   },
   {
+    name: "pi-editor-plain-mode-no-wait-is-consumed-and-not-forwarded",
+    ac: ["AC-2b"],
+    setup: "Invoke pi-editor with --mode plain --no-wait and passthrough args.",
+    invocation:
+      "Run runPiEditor and inspect forwarded editor args + open options.",
+    assertions:
+      "--no-wait is consumed by CLI, not forwarded as editor arg, and open path receives noWait=true.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-plain-no-wait-");
+
+      const decision = await runPiEditor({
+        argv: ["--mode", "plain", "--no-wait", "+Oil", "/tmp"],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => ({ openMode: "auto" }),
+        openEditorArgsImpl: async (receivedArgs, _config, _env, openOptions) => {
+          assert(
+            receivedArgs.join("|") === "+Oil|/tmp",
+            "Plain no-wait should not forward --no-wait as editor arg",
+          );
+          assert(
+            openOptions?.noWait === true,
+            "Plain no-wait should request noWait in open options",
+          );
+          return { effectiveMode: "nvr", waitMode: "remote-silent", noWait: true };
+        },
+      });
+
+      assert(
+        decision?.noWait === true,
+        "Plain no-wait should return decision from openEditorArgs path",
+      );
+    },
+  },
+  {
+    name: "pi-editor-no-wait-is-rejected-outside-plain-mode",
+    ac: ["AC-2b"],
+    setup: "Invoke non-plain modes with --no-wait.",
+    invocation: "Run runPiEditor with invalid no-wait usage.",
+    assertions:
+      "--no-wait outside plain throws usage error with exitCode=2.",
+    run: async () => {
+      const invalidArgvCases = [
+        ["--mode", "diff", "--no-wait", "old", "new"],
+        ["--mode", "context", "--no-wait", "prompt.md"],
+        ["--no-wait", "prompt.md"],
+      ];
+
+      for (const argv of invalidArgvCases) {
+        let capturedError = null;
+        try {
+          await runPiEditor({ argv });
+        } catch (error) {
+          capturedError = error;
+        }
+
+        assert(capturedError, `Expected usage error for argv: ${argv.join(" ")}`);
+        assert(
+          Number(capturedError?.exitCode) === 2,
+          `Invalid --no-wait usage must set exitCode=2 for argv: ${argv.join(" ")}`,
+        );
+      }
+    },
+  },
+  {
+    name: "files-extension-reveal-path-uses-pi-editor-plain-no-wait",
+    ac: ["AC-4", "AC-2b"],
+    setup: "Inspect files extension source for pi-editor reveal invocation contract.",
+    invocation: "Read extensions/files.ts and assert reveal builder content.",
+    assertions:
+      "Reveal path includes pi-editor plain + --no-wait contract.",
+    run: async () => {
+      const filePath = path.join(process.cwd(), "extensions", "files.ts");
+      const source = await fs.readFile(filePath, "utf8");
+
+      assertIncludes(
+        source,
+        "\"--mode\", \"plain\", \"--no-wait\"",
+        "Reveal path should construct pi-editor --mode plain --no-wait",
+      );
+    },
+  },
+  {
+    name: "pi-editor-explicit-diff-mode-routes-to-dedicated-diff-pipeline",
+    ac: ["AC-1", "AC-2", "AC-3"],
+    setup: "Invoke pi-editor with --mode diff <old> <new>.",
+    invocation:
+      "Run runPiEditor with diff args and stubbed openDiffEditor implementation.",
+    assertions:
+      "Diff mode resolves config and uses dedicated diff path (not plain/context paths).",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-explicit-diff-");
+
+      let resolveConfigCalled = false;
+      let openDiffCalled = false;
+
+      const decision = await runPiEditor({
+        argv: ["--mode", "diff", "old.ts", "new.ts"],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => {
+          resolveConfigCalled = true;
+          return { openMode: "auto" };
+        },
+        openDiffEditorImpl: async (oldFile, newFile, extraArgs, config) => {
+          openDiffCalled = true;
+          assert(oldFile === "old.ts", "Diff mode should pass old file path");
+          assert(newFile === "new.ts", "Diff mode should pass new file path");
+          assert(
+            Array.isArray(extraArgs) && extraArgs.length === 0,
+            "Diff mode should pass empty extra args when separator is absent",
+          );
+          assert(
+            config?.openMode === "auto",
+            "Diff mode should pass resolved editor config",
+          );
+          return { effectiveMode: "nvim", diff: true };
+        },
+        openEditorArgsImpl: async () => {
+          throw new Error("Plain passthrough path must not run in diff mode");
+        },
+        runEditorContextImpl: async () => {
+          throw new Error("Context path must not run in explicit diff mode");
+        },
+      });
+
+      assert(resolveConfigCalled, "Diff mode should resolve config");
+      assert(openDiffCalled, "Diff mode should call dedicated openDiffEditor");
+      assert(decision?.diff === true, "Diff mode should return diff decision");
+    },
+  },
+  {
+    name: "pi-editor-diff-mode-accepts-separator-and-preserves-extra-args",
+    ac: ["AC-2", "AC-3"],
+    setup:
+      "Invoke pi-editor diff mode with -- separator and additional passthrough args.",
+    invocation:
+      "Run runPiEditor(argv=[--mode, diff, old, new, --, +set, number, +wincmd, l]).",
+    assertions:
+      "Extras after -- are preserved and forwarded to dedicated diff pipeline.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-diff-extra-args-");
+
+      const decision = await runPiEditor({
+        argv: [
+          "--mode",
+          "diff",
+          "old.txt",
+          "new.txt",
+          "--",
+          "+set",
+          "number",
+          "+wincmd",
+          "l",
+        ],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => ({ openMode: "auto" }),
+        openDiffEditorImpl: async (_old, _new, extraArgs) => {
+          assert(
+            extraArgs.join("|") === "+set|number|+wincmd|l",
+            "Diff mode should preserve extra args after separator",
+          );
+          return { effectiveMode: "nvim", extraArgs: true };
+        },
+      });
+
+      assert(
+        decision?.extraArgs === true,
+        "Diff mode should return decision from dedicated diff pipeline",
+      );
+    },
+  },
+  {
+    name: "pi-editor-diff-mode-allows-empty-extra-args-after-separator",
+    ac: ["AC-2"],
+    setup: "Invoke pi-editor diff mode with trailing -- and no extra args.",
+    invocation: "Run runPiEditor(argv=[--mode, diff, old, new, --]).",
+    assertions:
+      "Trailing separator without extras is valid and forwards empty extra args.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-diff-empty-separator-");
+
+      const decision = await runPiEditor({
+        argv: ["--mode", "diff", "before.md", "after.md", "--"],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => ({ openMode: "auto" }),
+        openDiffEditorImpl: async (_old, _new, extraArgs) => {
+          assert(
+            Array.isArray(extraArgs) && extraArgs.length === 0,
+            "Diff mode should accept trailing separator with empty extra args",
+          );
+          return { effectiveMode: "nvim", emptySeparator: true };
+        },
+      });
+
+      assert(
+        decision?.emptySeparator === true,
+        "Diff mode should return decision for trailing separator form",
+      );
+    },
+  },
+  {
+    name: "pi-editor-diff-mode-invalid-forms-return-usage-error-with-exit-2",
+    ac: ["AC-2"],
+    setup: "Evaluate invalid diff argument shapes against parser contract.",
+    invocation: "Run runPiEditor with malformed --mode diff invocations.",
+    assertions:
+      "Each invalid form throws usage error carrying exitCode=2 and usage text.",
+    run: async () => {
+      const invalidArgvCases = [
+        ["--mode", "diff"],
+        ["--mode", "diff", "old-only"],
+        ["--mode", "diff", "old", "new", "extra-without-separator"],
+        ["--mode", "diff", "old", "--", "new"],
+        ["--mode", "diff", "old", "--", "new", "extra"],
+      ];
+
+      for (const argv of invalidArgvCases) {
+        let capturedError = null;
+        try {
+          await runPiEditor({ argv });
+        } catch (error) {
+          capturedError = error;
+        }
+
+        assert(capturedError, `Expected usage error for argv: ${argv.join(" ")}`);
+        assert(
+          Number(capturedError?.exitCode) === 2,
+          `Invalid diff form must set exitCode=2 for argv: ${argv.join(" ")}`,
+        );
+        assertIncludes(
+          String(capturedError?.message ?? ""),
+          "--mode diff <old-file> <new-file> [-- <extra-args...>]",
+          "Usage error should include diff syntax contract",
+        );
+      }
+    },
+  },
+  {
     name: "pi-editor-cli-without-args-returns-usage-and-exit-2",
     ac: ["AC-2"],
     setup: "Run pi-editor CLI entrypoint without required temp-file argument.",
@@ -1196,8 +1434,75 @@ process.exit(0);
       const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
       assertIncludes(
         combined,
-        "Usage: pi-editor.mjs [--mode context|plain] <pi-temp-file>",
-        "pi-editor CLI without args must print usage text",
+        "Usage:",
+        "pi-editor CLI without args must print usage header",
+      );
+      assertIncludes(
+        combined,
+        "pi-editor.mjs --mode diff <old-file> <new-file> [-- <extra-args...>]",
+        "pi-editor CLI usage must document explicit diff mode",
+      );
+    },
+  },
+  {
+    name: "pi-editor-cli-invalid-no-wait-outside-plain-returns-usage-and-exit-2",
+    ac: ["AC-2b"],
+    setup: "Run pi-editor CLI entrypoint with --mode diff --no-wait.",
+    invocation: "Spawn node scripts/pi-editor.mjs --mode diff --no-wait old new.",
+    assertions: "CLI prints usage message and exits with status code 2.",
+    run: async () => {
+      const scriptPath = path.join(process.cwd(), "scripts", "pi-editor.mjs");
+      const result = spawnSync(
+        "node",
+        [scriptPath, "--mode", "diff", "--no-wait", "old", "new"],
+        {
+          encoding: "utf8",
+        },
+      );
+
+      assert(
+        result.status === 2,
+        "pi-editor CLI invalid no-wait usage must exit with code 2",
+      );
+      const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      assertIncludes(
+        combined,
+        "Usage:",
+        "pi-editor CLI invalid no-wait usage must print usage header",
+      );
+      assertIncludes(
+        combined,
+        "pi-editor.mjs --mode plain [--no-wait] <editor-args...>",
+        "pi-editor CLI usage must document plain no-wait syntax",
+      );
+    },
+  },
+  {
+    name: "pi-editor-cli-invalid-diff-invocation-returns-usage-and-exit-2",
+    ac: ["AC-2"],
+    setup: "Run pi-editor CLI entrypoint with malformed diff invocation.",
+    invocation: "Spawn node scripts/pi-editor.mjs --mode diff old-only.",
+    assertions: "CLI prints usage message and exits with status code 2.",
+    run: async () => {
+      const scriptPath = path.join(process.cwd(), "scripts", "pi-editor.mjs");
+      const result = spawnSync("node", [scriptPath, "--mode", "diff", "old-only"], {
+        encoding: "utf8",
+      });
+
+      assert(
+        result.status === 2,
+        "pi-editor CLI invalid diff invocation must exit with code 2",
+      );
+      const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      assertIncludes(
+        combined,
+        "Usage:",
+        "pi-editor CLI invalid diff invocation must print usage header",
+      );
+      assertIncludes(
+        combined,
+        "pi-editor.mjs --mode diff <old-file> <new-file> [-- <extra-args...>]",
+        "pi-editor CLI invalid diff invocation must print diff usage syntax",
       );
     },
   },
