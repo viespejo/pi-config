@@ -1130,6 +1130,57 @@ process.exit(0);
     },
   },
   {
+    name: "pi-editor-plain-mode-passthrough-forwards-multiple-editor-args",
+    ac: ["AC-2", "AC-3"],
+    setup: "Invoke pi-editor with --mode plain and multiple editor arguments.",
+    invocation: "Run runPiEditor(argv=[--mode, plain, -d, a.ts, b.ts]).",
+    assertions: "Plain mode forwards all args to shared passthrough layer unchanged.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-plain-passthrough-");
+
+      let resolveConfigCalled = false;
+      let openEditorArgsCalled = false;
+
+      const decision = await runPiEditor({
+        argv: ["--mode", "plain", "-d", "a.ts", "b.ts"],
+        env: { ...process.env, PWD: sandbox },
+        resolveConfigImpl: async () => {
+          resolveConfigCalled = true;
+          return { openMode: "auto" };
+        },
+        openEditorArgsImpl: async (receivedArgs, config) => {
+          openEditorArgsCalled = true;
+          assert(
+            Array.isArray(receivedArgs),
+            "Plain passthrough should receive editor args array",
+          );
+          assert(
+            receivedArgs.join("|") === "-d|a.ts|b.ts",
+            "Plain passthrough should forward all editor args unchanged",
+          );
+          assert(
+            config?.openMode === "auto",
+            "Plain passthrough should pass resolved editor config",
+          );
+          return { effectiveMode: "nvim", passthrough: true };
+        },
+        runEditorContextImpl: async () => {
+          throw new Error("Context path must not run in explicit plain mode");
+        },
+      });
+
+      assert(resolveConfigCalled, "Plain passthrough should resolve config");
+      assert(
+        openEditorArgsCalled,
+        "Plain passthrough should call shared openEditorArgs layer",
+      );
+      assert(
+        decision?.passthrough === true,
+        "Plain passthrough should return openEditorArgs decision",
+      );
+    },
+  },
+  {
     name: "pi-editor-cli-without-args-returns-usage-and-exit-2",
     ac: ["AC-2"],
     setup: "Run pi-editor CLI entrypoint without required temp-file argument.",

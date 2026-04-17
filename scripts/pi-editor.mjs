@@ -19,7 +19,7 @@ import {
   parseJsonlSession,
   selectBranch,
 } from "./pi-editor-lib/session-core.mjs";
-import { openEditor } from "./pi-editor-lib/editor-open.mjs";
+import { openEditor, openEditorArgs } from "./pi-editor-lib/editor-open.mjs";
 import { runEditorContext } from "./pi-editor-lib/workflow.mjs";
 
 const USAGE = "Usage: pi-editor.mjs [--mode context|plain] <pi-temp-file>";
@@ -47,6 +47,17 @@ function parseCliArgs(argv) {
     args.splice(0, 2);
   }
 
+  if (mode === "plain") {
+    if (args.length < 1) {
+      throw usageError(USAGE);
+    }
+
+    return {
+      mode,
+      editorArgs: args.map((arg) => String(arg ?? "")).filter(Boolean),
+    };
+  }
+
   if (args.length !== 1) {
     throw usageError(USAGE);
   }
@@ -70,15 +81,28 @@ function extractPromptFromWorkingFile(content) {
 async function runPlainEditor(options = {}) {
   const env = options.env ?? process.env;
   const tempFile = options.tempFile;
+  const editorArgsInput = options.editorArgs;
   const resolveConfigImpl = options.resolveConfigImpl ?? resolveConfig;
   const openEditorImpl = options.openEditorImpl ?? openEditor;
+  const openEditorArgsImpl = options.openEditorArgsImpl ?? openEditorArgs;
 
-  if (!tempFile) {
+  const editorArgs = Array.isArray(editorArgsInput)
+    ? editorArgsInput.map((arg) => String(arg ?? "")).filter(Boolean)
+    : tempFile
+      ? [String(tempFile)]
+      : [];
+
+  if (editorArgs.length < 1) {
     throw usageError(USAGE);
   }
 
   const config = await resolveConfigImpl(env, resolveCwd(env));
-  return openEditorImpl(tempFile, config, env);
+
+  if (editorArgs.length === 1) {
+    return openEditorImpl(editorArgs[0], config, env);
+  }
+
+  return openEditorArgsImpl(editorArgs, config, env);
 }
 
 async function runContextEditor(options = {}) {
@@ -97,20 +121,21 @@ async function runPiEditor(options = {}) {
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
 
-  const { mode, tempFile } = parseCliArgs(argv);
+  const parsed = parseCliArgs(argv);
 
-  if (mode === "plain") {
+  if (parsed.mode === "plain") {
     return runPlainEditor({
       env,
-      tempFile,
+      editorArgs: parsed.editorArgs,
       resolveConfigImpl: options.resolveConfigImpl,
       openEditorImpl: options.openEditorImpl,
+      openEditorArgsImpl: options.openEditorArgsImpl,
     });
   }
 
   return runContextEditor({
     env,
-    tempFile,
+    tempFile: parsed.tempFile,
     runEditorContextImpl: options.runEditorContextImpl,
   });
 }

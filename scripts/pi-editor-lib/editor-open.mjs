@@ -262,6 +262,7 @@ function isNvrConnectionLostError(error) {
 }
 
 const NVR_WAIT_ARG = "--remote-wait-silent";
+const NVR_NOWAIT_ARG = "--remote-silent";
 const NVR_PRE_OPEN_ARGS = ["-cc", "split"];
 const FOLD_LUA_CMD =
   "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); pcall(vim.api.nvim_win_set_cursor,0,{l+1,0}); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); pcall(vim.api.nvim_win_set_cursor,0,{last_line,last_col})";
@@ -277,6 +278,119 @@ function makeNvrArgs(targetServer, filePath) {
     NVR_WAIT_ARG,
     ...NVR_REMOTE_COMMANDS,
     filePath,
+  ];
+}
+
+function parseDiffArgs(editorArgs) {
+  if (!Array.isArray(editorArgs)) {
+    return null;
+  }
+
+  const diffIndex = editorArgs.indexOf("-d");
+  if (diffIndex < 0) {
+    return null;
+  }
+
+  const oldFile = editorArgs[diffIndex + 1];
+  const newFile = editorArgs[diffIndex + 2];
+  if (!oldFile || !newFile) {
+    return null;
+  }
+
+  return {
+    diffIndex,
+    oldFile,
+    newFile,
+    before: editorArgs.slice(0, diffIndex),
+    after: editorArgs.slice(diffIndex + 3),
+  };
+}
+
+function escapeVimString(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+function isDiffEditorArgs(editorArgs) {
+  return parseDiffArgs(editorArgs) !== null;
+}
+
+function withStandaloneDiffUiCommands(editorArgs) {
+  const diff = parseDiffArgs(editorArgs);
+  if (!diff) {
+    return [...editorArgs];
+  }
+
+  const args = [...editorArgs];
+  args.push("-c", "wincmd h | setlocal readonly nomodifiable | wincmd l");
+  args.push("-c", "stopinsert");
+  args.push("-c", "wincmd l");
+  args.push("-c", "silent! normal! ]c");
+  args.push("-c", "normal! zz");
+  args.push("-c", "autocmd QuitPre * qall");
+  return args;
+}
+
+function buildNvrPassthroughEditorArgs(editorArgs) {
+  const diff = parseDiffArgs(editorArgs);
+  if (!diff) {
+    return [...editorArgs];
+  }
+
+  const escapedOldPath = escapeVimString(diff.oldFile);
+  const escapedNewPath = escapeVimString(diff.newFile);
+  const openVerticalDiffCmd =
+    `execute 'leftabove vert diffsplit ' . fnameescape('${escapedOldPath}')`;
+  const readonlyOldWindowCmd =
+    "windo if fnamemodify(expand('%:p'), ':p') ==# fnamemodify('" +
+    escapedOldPath +
+    "', ':p') | setlocal readonly nomodifiable | else | setlocal noreadonly modifiable | endif";
+  const setupWindowsCmd =
+    "wincmd h | setlocal bufhidden=wipe | diffthis | wincmd l | setlocal bufhidden=wipe | diffthis";
+  const closeOldOnNewLeaveCmd =
+    "autocmd BufWinLeave <buffer> ++once let bnr = bufnr(fnamemodify('" +
+    escapedOldPath +
+    "', ':p')) | if bnr > 0 | execute 'silent! bwipeout ' . bnr | endif";
+  const closeNewOnOldLeaveCmd =
+    "wincmd h | autocmd BufWinLeave <buffer> ++once let bnr = bufnr(fnamemodify('" +
+    escapedNewPath +
+    "', ':p')) | if bnr > 0 | execute 'silent! bwipeout ' . bnr | endif | wincmd l";
+
+  return [
+    ...diff.before,
+    diff.newFile,
+    ...diff.after,
+    "-c",
+    openVerticalDiffCmd,
+    "-c",
+    readonlyOldWindowCmd,
+    "-c",
+    setupWindowsCmd,
+    "-c",
+    closeOldOnNewLeaveCmd,
+    "-c",
+    closeNewOnOldLeaveCmd,
+    "-c",
+    "stopinsert",
+    "-c",
+    "wincmd l",
+    "-c",
+    "silent! normal! ]c",
+    "-c",
+    "normal! zz",
+  ];
+}
+
+function makeNvrPassthroughArgs(targetServer, editorArgs) {
+  const nvrEditorArgs = buildNvrPassthroughEditorArgs(editorArgs);
+  const waitArg = isDiffEditorArgs(editorArgs) ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
+
+  return [
+    "--nostart",
+    "--servername",
+    targetServer,
+    ...NVR_PRE_OPEN_ARGS,
+    waitArg,
+    ...nvrEditorArgs,
   ];
 }
 
@@ -307,6 +421,36 @@ function makeNvrRetryMetadata(firstError, retryResolution, initialResolution) {
 
 function openViaNvim(filePath, config, options = {}) {
   runEditorCommand("nvim", [...NVIM_INIT_ARGS, filePath]);
+
+  const decision = {
+    requestedMode: config.openMode,
+    effectiveMode: "nvim",
+    command: "nvim",
+    waitMode: "process",
+  };
+
+  const fallbackFrom = String(options.fallbackFrom ?? "").trim();
+  if (fallbackFrom) {
+    decision.fallbackFrom = fallbackFrom;
+  }
+
+  if (options.nvrResolution) {
+    Object.assign(decision, makeNvrRoutingMetadata(options.nvrResolution));
+  }
+
+  if (typeof options.nvrError !== "undefined") {
+    decision.nvrError =
+      options.nvrError instanceof Error
+        ? options.nvrError.message
+        : String(options.nvrError);
+  }
+
+  return decision;
+}
+
+function openViaNvimArgs(editorArgs, config, options = {}) {
+  const nvimArgs = withStandaloneDiffUiCommands(editorArgs);
+  runEditorCommand("nvim", nvimArgs);
 
   const decision = {
     requestedMode: config.openMode,
@@ -420,6 +564,66 @@ async function openViaNvrWithRetry(filePath, env, options = {}) {
   }
 }
 
+async function openViaNvrArgsWithRetry(editorArgs, env, options = {}) {
+  const initialResolution = options.initialResolution;
+  const preferFirstErrorOnRetryFailure = Boolean(
+    options.preferFirstErrorOnRetryFailure,
+  );
+
+  const nvrArgs = makeNvrPassthroughArgs(initialResolution.targetServer, editorArgs);
+
+  try {
+    runEditorCommand("nvr", nvrArgs, { captureOutput: true });
+    return {
+      ok: true,
+      resolution: initialResolution,
+      nvrRetry: undefined,
+    };
+  } catch (firstError) {
+    if (!isNvrConnectionLostError(firstError)) {
+      return {
+        ok: false,
+        error: firstError,
+      };
+    }
+
+    const retryResolution = await resolveNvrTargetServerWithRetry(env, {
+      attempts: 3,
+      delayMs: 250,
+    });
+
+    if (!retryResolution.hasTarget) {
+      return {
+        ok: false,
+        error: firstError,
+      };
+    }
+
+    const retryArgs = makeNvrPassthroughArgs(
+      retryResolution.targetServer,
+      editorArgs,
+    );
+
+    try {
+      runEditorCommand("nvr", retryArgs, { captureOutput: true });
+      return {
+        ok: true,
+        resolution: retryResolution,
+        nvrRetry: makeNvrRetryMetadata(
+          firstError,
+          retryResolution,
+          initialResolution,
+        ),
+      };
+    } catch (retryError) {
+      return {
+        ok: false,
+        error: preferFirstErrorOnRetryFailure ? firstError : retryError,
+      };
+    }
+  }
+}
+
 async function openEditor(filePath, config, env = process.env) {
   if (config.openMode === "nvr") {
     if (!commandAvailable("nvr")) {
@@ -508,4 +712,100 @@ async function openEditor(filePath, config, env = process.env) {
   });
 }
 
-export { isNvrConnectionLostError, openEditor };
+async function openEditorArgs(editorArgs, config, env = process.env) {
+  if (!Array.isArray(editorArgs) || editorArgs.length < 1) {
+    throw new Error("openEditorArgs requires at least one editor argument");
+  }
+
+  if (config.openMode === "nvr") {
+    if (!commandAvailable("nvr")) {
+      throw new Error("nvr mode requested, but nvr is not available in PATH");
+    }
+
+    const nvrResolution = await resolveNvrTargetServerWithRetry(env, {
+      attempts: 3,
+      delayMs: 250,
+    });
+
+    if (!nvrResolution.hasTarget) {
+      throw new Error(
+        "nvr mode requested, but no reachable target server was resolved",
+      );
+    }
+
+    const nvrResult = await openViaNvrArgsWithRetry(editorArgs, env, {
+      initialResolution: nvrResolution,
+      preferFirstErrorOnRetryFailure: false,
+    });
+
+    if (!nvrResult.ok) {
+      throw nvrResult.error;
+    }
+
+    return {
+      requestedMode: config.openMode,
+      effectiveMode: "nvr",
+      command: "nvr",
+      waitMode: isDiffEditorArgs(editorArgs)
+        ? "remote-silent"
+        : "remote-wait-silent",
+      ...makeNvrRoutingMetadata(nvrResult.resolution),
+      ...(nvrResult.nvrRetry ? { nvrRetry: nvrResult.nvrRetry } : {}),
+    };
+  }
+
+  if (config.openMode === "nvim") {
+    return openViaNvimArgs(editorArgs, config);
+  }
+
+  const hasNvr = commandAvailable("nvr");
+  const nvrResolution = hasNvr
+    ? await resolveNvrTargetServerWithRetry(env, {
+        attempts: 3,
+        delayMs: 250,
+      })
+    : {
+        hasTarget: false,
+        targetServer: "",
+        targetSource: "none",
+        availableServers: [],
+        candidateServers: [],
+        ownerPane: String(env.PI_EDITOR_OWNER_PANE ?? "").trim(),
+        paneOptionName: "@pi_editor_nvr_server",
+        paneOptionStatus: "nvr-unavailable",
+        paneOptionDetail: "nvr command is not available",
+      };
+
+  if (hasNvr && nvrResolution.hasTarget) {
+    const nvrResult = await openViaNvrArgsWithRetry(editorArgs, env, {
+      initialResolution: nvrResolution,
+      preferFirstErrorOnRetryFailure: true,
+    });
+
+    if (nvrResult.ok) {
+      return {
+        requestedMode: config.openMode,
+        effectiveMode: "nvr",
+        command: "nvr",
+        waitMode: isDiffEditorArgs(editorArgs)
+          ? "remote-silent"
+          : "remote-wait-silent",
+        ...makeNvrRoutingMetadata(nvrResult.resolution),
+        ...(nvrResult.nvrRetry ? { nvrRetry: nvrResult.nvrRetry } : {}),
+      };
+    }
+
+    return openViaNvimArgs(editorArgs, config, {
+      fallbackFrom: "nvr",
+      nvrResolution,
+      nvrError: nvrResult.error,
+    });
+  }
+
+  return openViaNvimArgs(editorArgs, config, {
+    fallbackFrom: hasNvr ? "nvr-no-target-server" : "nvr-unavailable",
+    nvrResolution,
+  });
+}
+
+export { isNvrConnectionLostError, openEditor, openEditorArgs };
