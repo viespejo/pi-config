@@ -1,0 +1,38 @@
+--- scripts/google-gemini-cli.original.js	2026-04-18 01:47:46.074376224 +0200
++++ scripts/google-gemini-cli.patched.js	2026-04-18 01:46:27.635228048 +0200
+@@ -18,14 +18,17 @@
+     DEFAULT_ENDPOINT,
+ ];
+ // Headers for Gemini CLI (prod endpoint)
++const DEFAULT_GEMINI_CLI_USER_AGENT = "google-cloud-sdk vscode_cloudshelleditor/0.1";
++const DEFAULT_GEMINI_CLI_X_GOOG_API_CLIENT = "gl-node/22.17.0";
++const DEFAULT_GEMINI_CLI_CLIENT_METADATA = JSON.stringify({
++    ideType: "IDE_UNSPECIFIED",
++    platform: "PLATFORM_UNSPECIFIED",
++    pluginType: "GEMINI",
++});
+ const GEMINI_CLI_HEADERS = {
+-    "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
+-    "X-Goog-Api-Client": "gl-node/22.17.0",
+-    "Client-Metadata": JSON.stringify({
+-        ideType: "IDE_UNSPECIFIED",
+-        platform: "PLATFORM_UNSPECIFIED",
+-        pluginType: "GEMINI",
+-    }),
++    "User-Agent": process.env.PI_GOOGLE_USER_AGENT || DEFAULT_GEMINI_CLI_USER_AGENT,
++    "X-Goog-Api-Client": process.env.PI_GOOGLE_X_GOOG_API_CLIENT || DEFAULT_GEMINI_CLI_X_GOOG_API_CLIENT,
++    "Client-Metadata": process.env.PI_GOOGLE_CLIENT_METADATA || DEFAULT_GEMINI_CLI_CLIENT_METADATA,
+ };
+ // Headers for Antigravity (sandbox endpoint) - requires specific User-Agent
+ const DEFAULT_ANTIGRAVITY_VERSION = "1.21.9";
+@@ -737,7 +740,9 @@
+         model: model.id,
+         request,
+         ...(isAntigravity ? { requestType: "agent" } : {}),
+-        userAgent: isAntigravity ? "antigravity" : "pi-coding-agent",
++        userAgent: isAntigravity
++            ? process.env.PI_GOOGLE_REQUEST_USER_AGENT_ANTIGRAVITY || "antigravity"
++            : process.env.PI_GOOGLE_REQUEST_USER_AGENT || "pi-coding-agent",
+         requestId: `${isAntigravity ? "agent" : "pi"}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+     };
+ }
