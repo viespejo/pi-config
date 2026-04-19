@@ -6,6 +6,7 @@ export const APPROVAL_OPTION_NO = "No";
 
 export const APPROVAL_OPTION_RUN_ONCE = "Run once";
 export const APPROVAL_OPTION_RUN_HIGH_RISK_ONCE = "Run high-risk once";
+export const APPROVAL_OPTION_EXPLAIN_COMMAND = "Explain command";
 export const APPROVAL_OPTION_BLOCK = "Block";
 
 export const RUN_CONFIRM_LABEL = "Type RUN to confirm";
@@ -29,13 +30,109 @@ export function allowExecutionPrompt(tool: string) {
   return `Tool: ${tool}\n\nAllow execution?`;
 }
 
-export function bashSimplePrompt(command: string, reason?: string) {
-  return `Tool: bash\n\nCommand:\n${command}${reason ? `\n\nReason: ${reason}` : ""}\n\nRun this command once?`;
+type BashExplanationPromptData = {
+  summary: string;
+  risks: string[];
+  impact: string;
+  recommendation: "safe-ish" | "caution" | "dangerous";
+  flags?: string[];
+  commandWasTruncated?: boolean;
+};
+
+const ANSI_RESET = "\x1b[0m";
+const ANSI_BOLD = "\x1b[1m";
+const ANSI_DIM = "\x1b[2m";
+const ANSI_GRAY = "\x1b[90m";
+
+const gray = (text: string) => `${ANSI_GRAY}${text}${ANSI_RESET}`;
+const dim = (text: string) => `${ANSI_DIM}${text}${ANSI_RESET}`;
+const boldGray = (text: string) =>
+  `${ANSI_BOLD}${ANSI_GRAY}${text}${ANSI_RESET}`;
+
+function indentLines(text: string, prefix = "  ") {
+  return text
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
 }
 
-export function bashHighRiskPrompt(command: string, reasons: string[]) {
-  const details = reasons.length > 0 ? `\n\nHigh-risk reasons:\n- ${reasons.join("\n- ")}` : "";
-  return `Tool: bash\n\nCommand:\n${command}${details}\n\nThis command is high risk.`;
+function section(title: string, body: string) {
+  return `${boldGray(`▌ ${title}`)}\n${indentLines(body)}`;
+}
+
+function bullets(items: string[]) {
+  if (items.length === 0) return `${dim("- unknown")}`;
+  return items.map((item) => `${dim("- ")}${item}`).join("\n");
+}
+
+export const BASH_SIMPLE_APPROVAL_OPTIONS = [
+  APPROVAL_OPTION_RUN_ONCE,
+  APPROVAL_OPTION_EXPLAIN_COMMAND,
+  APPROVAL_OPTION_BLOCK,
+] as const;
+
+export const BASH_HIGH_RISK_APPROVAL_OPTIONS = [
+  APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
+  APPROVAL_OPTION_EXPLAIN_COMMAND,
+  APPROVAL_OPTION_BLOCK,
+] as const;
+
+function renderBashExplanationSection(explanation?: BashExplanationPromptData) {
+  if (!explanation) return "";
+
+  const risksInline =
+    explanation.risks.length > 0 ? explanation.risks.join("  ·  ") : "unknown";
+
+  const lines = [
+    `${gray("summary:")} ${explanation.summary}`,
+    `${gray("impact:")} ${explanation.impact}`,
+    `${gray("recommendation:")} ${explanation.recommendation}`,
+    `${gray("risks:")} ${risksInline}`,
+  ];
+
+  if (explanation.flags && explanation.flags.length > 0) {
+    lines.push(`${gray("flags:")} ${explanation.flags.join(", ")}`);
+  }
+
+  if (explanation.commandWasTruncated) {
+    lines.push(dim("note: truncated command input (first 4000 chars)."));
+  }
+
+  return section("Explanation (AI)", lines.join("\n"));
+}
+
+export function bashSimplePrompt(
+  command: string,
+  reason?: string,
+  explanation?: BashExplanationPromptData,
+) {
+  const blocks = [
+    `${gray("tool:")} bash`,
+    section("Command", command),
+    reason ? section("Policy reason", reason) : "",
+    explanation ? renderBashExplanationSection(explanation) : "",
+    section("Decision", "Run this command once?"),
+  ].filter((block) => block.length > 0);
+
+  return blocks.join("\n\n");
+}
+
+export function bashHighRiskPrompt(
+  command: string,
+  reasons: string[],
+  explanation?: BashExplanationPromptData,
+) {
+  const blocks = [
+    `${gray("tool:")} bash`,
+    section("Command", command),
+    reasons.length > 0
+      ? section("High-risk reasons", bullets(reasons))
+      : section("High-risk reasons", `${dim("- unknown")}`),
+    explanation ? renderBashExplanationSection(explanation) : "",
+    section("Decision", "This command is high risk."),
+  ].filter((block) => block.length > 0);
+
+  return blocks.join("\n\n");
 }
 
 export function bashRunConfirmationPrompt() {

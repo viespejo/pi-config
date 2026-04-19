@@ -19,12 +19,15 @@ import { summarizeEditsForPrompt } from "./edit-preview.ts";
 import { extractEditInput, extractWriteInput } from "./tool-input.ts";
 import {
   allowExecutionPrompt,
+  APPROVAL_OPTION_EXPLAIN_COMMAND,
   APPROVAL_OPTION_REVIEW_NVIM,
   APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
   APPROVAL_OPTION_RUN_ONCE,
   APPROVAL_OPTION_VIEW_DIFF,
   APPROVAL_OPTION_YES,
   APPROVAL_OPTION_YES_SESSION,
+  BASH_HIGH_RISK_APPROVAL_OPTIONS,
+  BASH_SIMPLE_APPROVAL_OPTIONS,
   DENY_REASON_LABEL,
   DENY_REASON_PLACEHOLDER,
   DIFF_APPROVAL_OPTIONS,
@@ -50,6 +53,7 @@ import {
   reloadPermissionState,
   totalRuleCount,
 } from "./permission-rules.ts";
+import { generateBashExplanation } from "./bash-explain.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -122,6 +126,22 @@ function blockedByUserReason(userReason?: string) {
   return userReason
     ? `Blocked by user. Reason: ${userReason}`
     : "Blocked by user";
+}
+
+function mergeAndDedupeRisks(primary: string[], secondary: string[]) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const raw of [...primary, ...secondary]) {
+    const item = raw.trim();
+    if (!item) continue;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+
+  return merged;
 }
 
 async function buildProposedEditContent(
@@ -789,28 +809,109 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      let bashChoice: string | undefined;
-      try {
-        if (requiresHighRiskConfirmation) {
-          const highRiskReasons = [
+      const policyAndRiskReasons = requiresHighRiskConfirmation
+        ? [
             ...(configured.reason ? [configured.reason] : []),
             ...risk.highRiskReasons,
-          ];
-          bashChoice = await gateCtx.ui.select(
-            bashHighRiskPrompt(command, highRiskReasons),
-            defaultOptionsForTool("bash", { highRiskBash: true }),
-          );
-        } else {
-          bashChoice = await gateCtx.ui.select(
-            bashSimplePrompt(command, configured.reason),
-            defaultOptionsForTool("bash"),
-          );
+          ]
+        : configured.reason
+          ? [configured.reason]
+          : [];
+
+      let lastExplanation:
+        | {
+            summary: string;
+            risks: string[];
+            impact: string;
+            recommendation: "safe-ish" | "caution" | "dangerous";
+            flags?: string[];
+            commandWasTruncated?: boolean;
+          }
+        | undefined;
+
+      let cachedExplanationForCommand:
+        | {
+            command: string;
+            data: {
+              summary: string;
+              risks: string[];
+              impact: string;
+              recommendation: "safe-ish" | "caution" | "dangerous";
+              flags?: string[];
+              commandWasTruncated?: boolean;
+            };
+          }
+        | undefined;
+
+      let bashChoice: string | undefined;
+      while (true) {
+        try {
+          const prompt = requiresHighRiskConfirmation
+            ? bashHighRiskPrompt(command, policyAndRiskReasons, lastExplanation)
+            : bashSimplePrompt(command, configured.reason, lastExplanation);
+          const options = requiresHighRiskConfirmation
+            ? [...BASH_HIGH_RISK_APPROVAL_OPTIONS]
+            : [...BASH_SIMPLE_APPROVAL_OPTIONS];
+
+          bashChoice = await gateCtx.ui.select(prompt, options);
+        } catch (err) {
+          return {
+            block: true,
+            reason: `Blocked: ui.select failed (${String(err)})`,
+          };
         }
-      } catch (err) {
-        return {
-          block: true,
-          reason: `Blocked: ui.select failed (${String(err)})`,
+
+        if (bashChoice !== APPROVAL_OPTION_EXPLAIN_COMMAND) {
+          break;
+        }
+
+        if (
+          cachedExplanationForCommand &&
+          cachedExplanationForCommand.command === command
+        ) {
+          lastExplanation = cachedExplanationForCommand.data;
+          continue;
+        }
+
+        const explanationResult = await generateBashExplanation({
+          command,
+          cwd,
+          ctx,
+          configuredReason: configured.reason,
+          highRiskReasons: risk.highRiskReasons,
+        });
+
+        if (!explanationResult.ok) {
+          gateCtx.ui.notify?.(
+            `Could not explain command: ${explanationResult.error.message}`,
+            "warning",
+          );
+          continue;
+        }
+
+        const mergedRisks = mergeAndDedupeRisks(
+          explanationResult.explanation.risks,
+          policyAndRiskReasons,
+        );
+
+        const normalized = {
+          summary: explanationResult.explanation.summary,
+          risks: mergedRisks,
+          impact: explanationResult.explanation.impact,
+          recommendation: explanationResult.explanation.recommendation,
+          ...(explanationResult.explanation.flags
+            ? { flags: explanationResult.explanation.flags }
+            : {}),
+          ...(explanationResult.meta.commandWasTruncated
+            ? { commandWasTruncated: true }
+            : {}),
         };
+
+        cachedExplanationForCommand = {
+          command,
+          data: normalized,
+        };
+        lastExplanation = normalized;
       }
 
       if (requiresHighRiskConfirmation) {

@@ -44,7 +44,35 @@ Important rule interaction:
 Used for default and `ask` (non-high-risk):
 
 - `Run once`
+- `Explain command`
 - `Block`
+
+### Explain command
+
+`Explain command` requests a concise English explanation before deciding.
+
+Rendered fields:
+
+- `Summary`
+- `Risks`
+- `Impact`
+- `Recommendation` (`safe-ish | caution | dangerous`)
+- `Flags` (only when useful)
+
+Behavior notes:
+
+- The explanation is shown inline in the same prompt and the same decision menu is shown again.
+- If explanation generation fails (model/auth/timeout/invalid output), a warning is shown and the run/block flow remains usable.
+- Explanations are advisory only and do not replace user judgment or policy enforcement.
+
+Short example (simple flow):
+
+1. User sees options: `Run once`, `Explain command`, `Block`.
+2. User selects `Explain command`.
+3. Prompt updates with `Explanation (AI)` and the same options are shown again.
+4. User chooses `Run once` or `Block`.
+
+This same explain behavior also applies to the first high-risk menu.
 
 ### High-risk confirmation
 
@@ -52,8 +80,9 @@ Used whenever command is classified high-risk:
 
 1. First choice:
    - `Run high-risk once`
+   - `Explain command`
    - `Block`
-2. Second required step:
+2. Second required step (only after choosing `Run high-risk once`):
    - typed confirmation input must be exactly `RUN` or `run`
 
 If any high-risk step fails, the command is blocked.
