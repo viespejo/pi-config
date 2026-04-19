@@ -434,8 +434,24 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // Use the currently selected agent model for extraction
-    const extractionModel = ctx.model;
+    // Prefer specific extraction models, then fallback to current model
+    const availableModels = ctx.modelRegistry.getAvailable();
+    const preferredExtractionModels = [
+      ["google-gemini-cli", "gemini-3-flash-preview"],
+      ["github-copilot", "gpt-5-mini"],
+    ] as const;
+
+    const preferredModel = preferredExtractionModels
+      .map(([provider, id]) =>
+        availableModels.find(
+          (m) =>
+            m.provider.toLowerCase() === provider.toLowerCase() &&
+            m.id.toLowerCase() === id.toLowerCase(),
+        ),
+      )
+      .find(Boolean);
+
+    const extractionModel = preferredModel ?? ctx.model;
     const extractionReasoning = extractionModel.reasoning
       ? "minimal"
       : undefined;

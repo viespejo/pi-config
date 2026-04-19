@@ -1267,11 +1267,30 @@ function formatTodoHeading(todo: TodoFrontMatter): string {
   return `${formatTodoId(todo.id)} ${getTodoTitle(todo)}${tagText}${formatAssignmentSuffix(todo)}`;
 }
 
-function buildRefinePrompt(todoId: string, title: string): string {
+function buildRefinePrompt(todo: TodoRecord): string {
+  const body = todo.body?.trim() ? todo.body.trim() : "No details yet.";
   return (
-    `let's refine task ${formatTodoId(todoId)} "${title}": ` +
-    "Ask me for the missing details needed to refine the todo together. Do not rewrite the todo yet and do not make assumptions. " +
-    "Ask clear, concrete questions and wait for my answers before drafting any structured description.\n\n"
+    "Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.\n\n" +
+    "Ask the questions one at a time.\n\n" +
+    "If a question can be answered by exploring the codebase, explore the codebase instead.\n\n" +
+    "IMPORTANT: Communicate with me entirely in Spanish, but ensure any technical artifacts or structured data discussed are in English to maintain consistency with the project.\n\n" +
+    `let's refine task ${formatTodoId(todo.id)} "${todo.title}"\n\n` +
+    `Current details:\n${body}\n\n`
+  );
+}
+
+function buildWorkPrompt(todo: TodoRecord): string {
+  const body = todo.body?.trim() ? todo.body.trim() : "No details yet.";
+  return (
+    `Now it's time to implement task ${formatTodoId(todo.id)} "${todo.title}".\n\n` +
+    `Current details:\n${body}\n\n` +
+    `Critical Execution Instructions:\n` +
+    `1. Step-by-step: Work task by task, only one at a time.\n` +
+    `2. Mandatory intention explanation: BEFORE each file edit or creation, you MUST explain your intention. ` +
+    `This explanation must be provided before you emit any tool calls, so I have context to review the change.\n` +
+    `3. Language Consistency: Communication with me must be entirely in SPANISH, but all generated artifacts ` +
+    `(code, comments, logs, etc.) must be in ENGLISH to maintain project consistency.\n` +
+    `4. Validation: If any detail is ambiguous or information is missing, stop and ask for clarification before acting.\n\n`
   );
 }
 
@@ -2347,14 +2366,12 @@ export default function todosExtension(pi: ExtensionAPI) {
           action: TodoMenuAction,
         ): Promise<"stay" | "exit"> => {
           if (action === "refine") {
-            const title = record.title || "(untitled)";
-            nextPrompt = buildRefinePrompt(record.id, title);
+            nextPrompt = buildRefinePrompt(record);
             done();
             return "exit";
           }
           if (action === "work") {
-            const title = record.title || "(untitled)";
-            nextPrompt = `work on todo ${formatTodoId(record.id)} "${title}"`;
+            nextPrompt = buildWorkPrompt(record);
             done();
             return "exit";
           }
@@ -2493,12 +2510,13 @@ export default function todosExtension(pi: ExtensionAPI) {
           () => done(),
           searchTerm || undefined,
           currentSessionId,
-          (todo, action) => {
-            const title = todo.title || "(untitled)";
+          async (todo, action) => {
+            const record = await resolveTodoRecord(todo);
+            if (!record) return;
             nextPrompt =
               action === "refine"
-                ? buildRefinePrompt(todo.id, title)
-                : `work on todo ${formatTodoId(todo.id)} "${title}"`;
+                ? buildRefinePrompt(record)
+                : buildWorkPrompt(record);
             done();
           },
         );
