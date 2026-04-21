@@ -2,8 +2,10 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
   allowExecutionPrompt,
+  readApprovalPrompt,
   APPROVAL_OPTION_BLOCK,
   APPROVAL_OPTION_NO,
+  APPROVAL_OPTION_READ_ONCE,
   APPROVAL_OPTION_REVIEW_NVIM,
   APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
   APPROVAL_OPTION_RUN_ONCE,
@@ -40,6 +42,7 @@ describe("prompt-messages", () => {
     ]);
     assert.equal(APPROVAL_OPTION_RUN_ONCE, "Run once");
     assert.equal(APPROVAL_OPTION_RUN_HIGH_RISK_ONCE, "Run high-risk once");
+    assert.equal(APPROVAL_OPTION_READ_ONCE, "Read once");
     assert.equal(APPROVAL_OPTION_BLOCK, "Block");
     assert.equal(RUN_CONFIRM_LABEL, "Type RUN to confirm");
     assert.equal(RUN_CONFIRM_PLACEHOLDER, "RUN");
@@ -54,9 +57,9 @@ describe("prompt-messages", () => {
     const highRisk = bashHighRiskPrompt("sudo rm -rf /tmp/x", ["Uses sudo", "Outside cwd"]);
     const typed = bashRunConfirmationPrompt();
 
-    assert.match(simple, /Tool: bash/);
+    assert.match(simple, /tool:\x1B\[0m bash/);
     assert.match(simple, /Run this command once\?/);
-    assert.match(simple, /Reason: rule ask/);
+    assert.match(simple, /Policy reason/);
 
     assert.match(highRisk, /This command is high risk/);
     assert.match(highRisk, /Uses sudo/);
@@ -65,9 +68,14 @@ describe("prompt-messages", () => {
     assert.match(typed, /type RUN/i);
   });
 
-  it("builds allow execution prompt", () => {
+  it("builds allow execution and read approval prompts", () => {
     const prompt = allowExecutionPrompt("write");
+    const readPrompt = readApprovalPrompt(".env", ["Target matches .gitignore rules."]);
+
     assert.equal(prompt, "Tool: write\n\nAllow execution?");
+    assert.match(readPrompt, /Tool: read/);
+    assert.match(readPrompt, /Target: \.env/);
+    assert.match(readPrompt, /Read requires confirmation/);
   });
 
   it("builds preview unavailable prompt with and without metadata", () => {

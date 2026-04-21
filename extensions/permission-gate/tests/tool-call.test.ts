@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import nodePath from "node:path";
+import { execFileSync } from "node:child_process";
 import permissionGateExtension from "../index.ts";
 import {
   APPROVAL_OPTION_NO,
@@ -146,6 +147,10 @@ async function writeJson(path: string, value: unknown) {
   await fs.writeFile(path, JSON.stringify(value, null, 2), "utf-8");
 }
 
+function initGitRepo(cwd: string) {
+  execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+}
+
 describe("permission-gate tool_call", () => {
   it("bypasses prompt for always-allow tools", async () => {
     const gate = setupExtension();
@@ -153,12 +158,158 @@ describe("permission-gate tool_call", () => {
 
     const res = await gate.emit(
       "tool_call",
-      { toolName: "read", input: { path: "a.txt" } },
+      { toolName: "ls", input: { path: "." } },
       { hasUI: true, ui: ui.ui, cwd: process.cwd() },
     );
 
     assert.equal(res, undefined);
     assert.equal(ui.selectCalls.length, 0);
+  });
+
+  it("blocks hard-deny read targets like .env", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: ".env" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res?.block, true);
+    assert.match(String(res?.reason), /hard-deny read policy/i);
+    assert.equal(ui.selectCalls.length, 0);
+  });
+
+  it("allows read for .env example variants", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const cwd = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-read-env-example-"));
+    const ui = makeUI({});
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: ".env.local.example" } },
+      { hasUI: true, ui: ui.ui, cwd },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 0);
+  });
+
+  it("asks for read in operational secret locations", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: ".aws/credentials" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 1);
+    assert.deepEqual(ui.selectCalls[0]!.options, ["Read once", "Block"]);
+    assert.match(ui.selectCalls[0]!.prompt, /operational secrets directory/i);
+  });
+
+  it("asks for read when target is outside cwd", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: "../outside.txt" } },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 1);
+    assert.match(ui.selectCalls[0]!.prompt, /outside current working directory/i);
+  });
+
+  it("asks for read when path is gitignored", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const cwd = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-read-git-"));
+    initGitRepo(cwd);
+    await fs.writeFile(nodePath.join(cwd, ".gitignore"), "secret.txt\n", "utf-8");
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: "secret.txt" } },
+      { hasUI: true, ui: ui.ui, cwd },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 1);
+    assert.match(ui.selectCalls[0]!.prompt, /matches \.gitignore/i);
+  });
+
+  it("configured allow does not bypass outside-cwd ask for read", async () => {
+    clearPermissionStateCache();
+    const cwd = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-read-allow-"));
+    await writeJson(nodePath.join(cwd, ".pi", "settings.json"), {
+      permissionGate: {
+        permissions: {
+          allow: ["Read(*)"],
+        },
+      },
+    });
+
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: "../x.txt" } },
+      { hasUI: true, ui: ui.ui, cwd },
+    );
+
+    assert.equal(res, undefined);
+    assert.equal(ui.selectCalls.length, 1);
+  });
+
+  it("configured deny escalates read decision to block", async () => {
+    clearPermissionStateCache();
+    const cwd = await fs.mkdtemp(nodePath.join(os.tmpdir(), "pg-read-deny-"));
+    await writeJson(nodePath.join(cwd, ".pi", "settings.json"), {
+      permissionGate: {
+        permissions: {
+          deny: ["Read(*)"],
+        },
+      },
+    });
+
+    const gate = setupExtension();
+    const ui = makeUI({ selectAnswers: ["Read once"] });
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: { path: "notes.txt" } },
+      { hasUI: true, ui: ui.ui, cwd },
+    );
+
+    assert.equal(res?.block, true);
+    assert.match(String(res?.reason), /configured read deny rule|Denied by configured rule/i);
+    assert.equal(ui.selectCalls.length, 0);
+  });
+
+  it("blocks read calls with invalid input", async () => {
+    clearPermissionStateCache();
+    const gate = setupExtension();
+    const ui = makeUI({});
+
+    const res = await gate.emit(
+      "tool_call",
+      { toolName: "read", input: {} },
+      { hasUI: true, ui: ui.ui, cwd: process.cwd() },
+    );
+
+    assert.equal(res?.block, true);
+    assert.match(String(res?.reason), /invalid read input/i);
   });
 
   it("hard-deny blocks bash immediately without approval path", async () => {
@@ -214,7 +365,11 @@ describe("permission-gate tool_call", () => {
 
       assert.equal(res, undefined);
       assert.equal(ui.selectCalls.length, 1);
-      assert.deepEqual(ui.selectCalls[0]!.options, ["Run once", "Block"]);
+      assert.deepEqual(ui.selectCalls[0]!.options, [
+        "Run once",
+        "Explain command",
+        "Block",
+      ]);
     } finally {
       process.env.HOME = oldHome;
       clearPermissionStateCache();
@@ -291,6 +446,7 @@ describe("permission-gate tool_call", () => {
     assert.equal(ui.selectCalls.length, 1);
     assert.deepEqual(ui.selectCalls[0]!.options, [
       "Run high-risk once",
+      "Explain command",
       "Block",
     ]);
     assert.equal(ui.inputCalls.length, 1);
@@ -389,14 +545,16 @@ describe("permission-gate tool_call", () => {
 
     await gate.runCommand("pgate", "status", cmdCtx);
     await gate.runCommand("pgate", "test Bash(git push origin main)", cmdCtx);
+    await gate.runCommand("pgate", "test Read(.env)", cmdCtx);
     await gate.runCommand("pgate", "reload", cmdCtx);
     await gate.runCommand("pgate", "clear-session", cmdCtx);
 
-    assert.equal(ui.notifications.length, 4);
+    assert.equal(ui.notifications.length, 5);
     assert.match(ui.notifications[0]!.message, /permission-gate status/i);
-    assert.match(ui.notifications[1]!.message, /pgate test => action=ask/i);
-    assert.match(ui.notifications[2]!.message, /permission-gate reloaded/i);
-    assert.match(ui.notifications[3]!.message, /session allow-list cleared/i);
+    assert.match(ui.notifications[1]!.message, /pgate test => tool=bash, action=ask/i);
+    assert.match(ui.notifications[2]!.message, /pgate test => tool=read, action=deny\(hard-deny\)/i);
+    assert.match(ui.notifications[3]!.message, /permission-gate reloaded/i);
+    assert.match(ui.notifications[4]!.message, /session allow-list cleared/i);
   });
 
   it("/pgate reload keeps session allow-list, /pgate clear-session clears it", async () => {

@@ -382,63 +382,160 @@ export function reloadPermissionState(cwd: string): PermissionState {
   return loadPermissionState(cwd, { reload: true });
 }
 
+function normalizeReadPathForMatch(pathValue: string, cwd: string): string[] {
+  const trimmed = String(pathValue ?? "").trim();
+  if (!trimmed) return [];
+
+  const expanded =
+    trimmed.startsWith("~/") || trimmed === "~"
+      ? nodePath.join(homedir(), trimmed.slice(2))
+      : trimmed;
+  const absolute = nodePath.resolve(cwd, expanded);
+  const relative = nodePath.relative(cwd, absolute);
+
+  return [trimmed, nodePath.normalize(expanded), absolute, relative]
+    .map((item) => item.replace(/\\/g, "/").toLowerCase())
+    .filter(Boolean);
+}
+
+function ruleTargetsRead(ruleTool: string): boolean {
+  if (ruleTool === "read") return true;
+  if (ruleTool === "*") return true;
+  if (ruleTool.includes("*") || ruleTool.includes("?")) {
+    return globToRegExp(ruleTool).test("read");
+  }
+  return false;
+}
+
+function matchReadRule(
+  rule: ParsedRule,
+  candidates: string[],
+): { matched: boolean; matchedSegment?: string } {
+  if (!ruleTargetsRead(rule.tool)) return { matched: false };
+
+  if (rule.specifier == null) {
+    return { matched: true, matchedSegment: candidates[0] };
+  }
+
+  const matcher = globToRegExp(rule.specifier.toLowerCase());
+  for (const candidate of candidates) {
+    if (matcher.test(candidate)) {
+      return { matched: true, matchedSegment: candidate };
+    }
+  }
+
+  return { matched: false };
+}
+
 export function evaluatePermission(
   toolName: string,
   input: Record<string, unknown>,
-  _cwd: string,
+  cwd: string,
   state: PermissionState,
 ): PermissionVerdict {
   const tool = normalizeToolName(toolName);
-  if (tool !== "bash") {
-    return {
-      action: "default",
-      reason: "No config rule evaluation for non-bash tools.",
-    };
-  }
 
-  const command = typeof input.command === "string" ? input.command : "";
-  const segments = splitBashSegments(command);
-  if (segments.length === 0) {
-    return { action: "default", reason: "No bash command segments found." };
-  }
-
-  for (const rule of state.merged.deny) {
-    const res = matchRuleAgainstSegments(rule, segments);
-    if (res.matched) {
-      return {
-        action: "deny",
-        matchedRule: rule.raw,
-        matchedSegment: res.matchedSegment,
-        reason: `Denied by configured rule ${rule.raw}`,
-      };
+  if (tool === "bash") {
+    const command = typeof input.command === "string" ? input.command : "";
+    const segments = splitBashSegments(command);
+    if (segments.length === 0) {
+      return { action: "default", reason: "No bash command segments found." };
     }
-  }
 
-  for (const rule of state.merged.ask) {
-    const res = matchRuleAgainstSegments(rule, segments);
-    if (res.matched) {
-      return {
-        action: "ask",
-        matchedRule: rule.raw,
-        matchedSegment: res.matchedSegment,
-        reason: `Confirmation required by configured rule ${rule.raw}`,
-      };
+    for (const rule of state.merged.deny) {
+      const res = matchRuleAgainstSegments(rule, segments);
+      if (res.matched) {
+        return {
+          action: "deny",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Denied by configured rule ${rule.raw}`,
+        };
+      }
     }
-  }
 
-  for (const rule of state.merged.allow) {
-    const res = matchRuleAgainstSegments(rule, segments);
-    if (res.matched) {
-      return {
-        action: "allow",
-        matchedRule: rule.raw,
-        matchedSegment: res.matchedSegment,
-        reason: `Allowed by configured rule ${rule.raw}`,
-      };
+    for (const rule of state.merged.ask) {
+      const res = matchRuleAgainstSegments(rule, segments);
+      if (res.matched) {
+        return {
+          action: "ask",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Confirmation required by configured rule ${rule.raw}`,
+        };
+      }
     }
+
+    for (const rule of state.merged.allow) {
+      const res = matchRuleAgainstSegments(rule, segments);
+      if (res.matched) {
+        return {
+          action: "allow",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Allowed by configured rule ${rule.raw}`,
+        };
+      }
+    }
+
+    return { action: "default", reason: "No matching bash rule." };
   }
 
-  return { action: "default", reason: "No matching bash rule." };
+  if (tool === "read") {
+    const pathValue =
+      typeof input.path === "string"
+        ? input.path
+        : typeof input.file_path === "string"
+          ? input.file_path
+          : "";
+    const candidates = normalizeReadPathForMatch(pathValue, cwd);
+    if (candidates.length === 0) {
+      return { action: "default", reason: "No read path found." };
+    }
+
+    for (const rule of state.merged.deny) {
+      const res = matchReadRule(rule, candidates);
+      if (res.matched) {
+        return {
+          action: "deny",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Denied by configured rule ${rule.raw}`,
+        };
+      }
+    }
+
+    for (const rule of state.merged.ask) {
+      const res = matchReadRule(rule, candidates);
+      if (res.matched) {
+        return {
+          action: "ask",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Confirmation required by configured rule ${rule.raw}`,
+        };
+      }
+    }
+
+    for (const rule of state.merged.allow) {
+      const res = matchReadRule(rule, candidates);
+      if (res.matched) {
+        return {
+          action: "allow",
+          matchedRule: rule.raw,
+          matchedSegment: res.matchedSegment,
+          reason: `Allowed by configured rule ${rule.raw}`,
+        };
+      }
+    }
+
+    return { action: "default", reason: "No matching read rule." };
+  }
+
+  return {
+    action: "default",
+    reason: "No config rule evaluation for this tool.",
+  };
 }
 
 export function parseTestExpression(ruleText: string): {
@@ -462,6 +559,10 @@ export function parseTestExpression(ruleText: string): {
 
   if (normalizedTool === "bash") {
     input.command = specifier;
+  }
+
+  if (normalizedTool === "read") {
+    input.path = specifier;
   }
 
   return { toolName: normalizedTool, input };

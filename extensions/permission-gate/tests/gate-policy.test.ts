@@ -10,7 +10,7 @@ import {
 
 describe("gate-policy", () => {
   it("defines the expected always-allow tools", () => {
-    assert.equal(ALWAYS_ALLOW_TOOLS.has("read"), true);
+    assert.equal(ALWAYS_ALLOW_TOOLS.has("read"), false);
     assert.equal(ALWAYS_ALLOW_TOOLS.has("ls"), true);
     assert.equal(ALWAYS_ALLOW_TOOLS.has("grep"), true);
     assert.equal(ALWAYS_ALLOW_TOOLS.has("find"), true);
@@ -18,7 +18,8 @@ describe("gate-policy", () => {
   });
 
   it("detects always-allow tool names", () => {
-    assert.equal(isAlwaysAllowedTool("read"), true);
+    assert.equal(isAlwaysAllowedTool("find"), true);
+    assert.equal(isAlwaysAllowedTool("read"), false);
     assert.equal(isAlwaysAllowedTool("edit"), false);
   });
 
@@ -30,7 +31,8 @@ describe("gate-policy", () => {
     ]);
   });
 
-  it("uses session options for non-bash tools", () => {
+  it("uses tool-specific options for read and session options for write", () => {
+    assert.deepEqual(defaultOptionsForTool("read"), ["Read once", "Block"]);
     assert.deepEqual(defaultOptionsForTool("write"), [
       "Yes",
       "Yes, always this session",
@@ -38,8 +40,9 @@ describe("gate-policy", () => {
     ]);
   });
 
-  it("does not allow session persistence for bash", () => {
+  it("does not allow session persistence for bash/read", () => {
     assert.equal(supportsSessionAllow("bash"), false);
+    assert.equal(supportsSessionAllow("read"), false);
     assert.equal(supportsSessionAllow("write"), true);
   });
 

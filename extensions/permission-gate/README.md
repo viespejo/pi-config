@@ -9,14 +9,15 @@ This phase hardens `bash` execution without changing existing `edit` / `write` w
 Implemented behavior:
 
 - Non-overridable **hard-deny** checks for catastrophic shell commands.
-- Config-driven `bash` policy from settings (`deny > ask > allow > default`).
-- **High-risk** detection with mandatory two-step confirmation (`RUN` / `run`).
+- Config-driven policy from settings (`deny > ask > allow > default`) for `bash` and `read`.
+- `read` sensitivity policy with hard-deny + ask paths (including `.gitignore` signal).
+- **High-risk** detection with mandatory two-step confirmation (`RUN` / `run`) for `bash`.
 - `/pgate` operational command for status, testing, reload, and session reset.
 
 Preserved behavior:
 
 - `edit` / `write` approval loop and Neovim review flow remain unchanged.
-- Read-only tools (`read`, `ls`, `grep`, `find`) stay auto-allowed.
+- `ls`, `grep`, `find` stay auto-allowed.
 - `bash` still has no "always this session" mode.
 
 ---
@@ -109,6 +110,28 @@ Hard-deny includes catastrophic patterns (e.g. destructive root deletion) and bl
 
 ---
 
+## Read decision order
+
+For `read` tool calls, the extension evaluates in this order:
+
+1. **Hard-deny** sensitive targets (e.g. `.env`, `.ssh`, private keys)
+2. **Configured deny** (`Read(...)`) from settings
+3. **Ask-required signals**
+   - matches `.gitignore`
+   - target outside cwd
+   - operational secret locations (`.aws`, `.kube`, `.gnupg`, etc.)
+4. **Configured ask/allow** (`Read(...)`)
+5. Default allow
+
+Important interactions:
+
+- `allow` does not bypass `.gitignore` ask signals.
+- `allow` does not bypass outside-cwd ask signals.
+- configured `deny` can still escalate to block.
+- Ask flow for `read` uses `Read once` / `Block` (no session persistence).
+
+---
+
 ## Config contract
 
 Settings are loaded from:
@@ -126,9 +149,9 @@ Example schema:
 {
   "permissionGate": {
     "permissions": {
-      "allow": ["Bash(echo *)"],
-      "ask": ["Bash(git push *)"],
-      "deny": ["Bash(rm -rf *)"]
+      "allow": ["Bash(echo *)", "Read(.env.example)"] ,
+      "ask": ["Bash(git push *)", "Read(secrets/*)"],
+      "deny": ["Bash(rm -rf *)", "Read(.env)"]
     }
   }
 }
@@ -142,7 +165,7 @@ If local `<cwd>/.pi/settings.json` defines `permissionGate.permissions`, it **fu
 
 - `Tool(specifier)`
 - wildcard support via `*`
-- runtime decisioning in this phase evaluates only `Bash(...)` rules
+- runtime decisioning evaluates `Bash(...)` and `Read(...)` rules
 
 ### Segmentation for composed bash commands
 
@@ -166,7 +189,9 @@ Available subcommands:
 - `/pgate status`
   - shows active settings source, rule counts, warnings
 - `/pgate test Bash(<command>)`
-  - evaluates config + risk classification and reports result
+  - evaluates bash config + risk classification and reports result
+- `/pgate test Read(<path>)`
+  - evaluates read config + sensitivity classification and reports result
 - `/pgate reload`
   - reloads permission-rule cache only
 - `/pgate clear-session`
@@ -178,7 +203,8 @@ Available subcommands:
 
 ## Non-bash behavior (unchanged)
 
-- `read`, `ls`, `grep`, `find`: auto-allowed
+- `ls`, `grep`, `find`: auto-allowed
+- `read`: default allow for non-sensitive paths, deny/ask for sensitive ones
 - most tools: `Yes`, `Yes, always this session`, `No`
 - `edit` / `write`: keep diff + Neovim review loop unchanged
 - when UI is unavailable for required confirmation paths, calls are blocked conservatively

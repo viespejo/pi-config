@@ -6,6 +6,7 @@ export const APPROVAL_OPTION_NO = "No";
 
 export const APPROVAL_OPTION_RUN_ONCE = "Run once";
 export const APPROVAL_OPTION_RUN_HIGH_RISK_ONCE = "Run high-risk once";
+export const APPROVAL_OPTION_READ_ONCE = "Read once";
 export const APPROVAL_OPTION_EXPLAIN_COMMAND = "Explain command";
 export const APPROVAL_OPTION_BLOCK = "Block";
 
@@ -28,6 +29,11 @@ export const DENY_REASON_PLACEHOLDER = "Reason for the LLM";
 
 export function allowExecutionPrompt(tool: string) {
   return `Tool: ${tool}\n\nAllow execution?`;
+}
+
+export function readApprovalPrompt(pathLabel: string, reasons: string[]) {
+  const body = reasons.map((item) => `- ${item}`).join("\n");
+  return `Tool: read\n\nTarget: ${pathLabel}\n\nRead requires confirmation:\n${body}\n\nAllow execution?`;
 }
 
 type BashExplanationPromptData = {
