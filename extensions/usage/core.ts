@@ -27,6 +27,7 @@ export interface ProviderUsage {
   provider: "Claude" | "Codex" | "Gemini";
   quotas: Quota[];
   error?: string;
+  debug?: string[];
 }
 
 export const GOOGLE_QUOTA_ENDPOINT = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
@@ -95,12 +96,20 @@ export function formatResetsAt(isoDate: string, nowMs = Date.now()): string {
 
 export function readPercentCandidate(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  if (value >= 0 && value <= 1) return value * 100;
+
+  // APIs are inconsistent: some return fractions (0.42), others return
+  // percentages directly (42). Treat 0/1 integers as percentages to avoid
+  // misreading "1" as 100% used.
+  if (value >= 0 && value <= 1) {
+    if (Number.isInteger(value)) return value;
+    return value * 100;
+  }
+
   if (value >= 0 && value <= 100) return value;
   return null;
 }
 
-export async function fetchCodexUsage(token: string): Promise<ProviderUsage> {
+export async function fetchCodexUsage(token: string, includeDebug = false): Promise<ProviderUsage> {
   const result = await requestJson(
     "https://chatgpt.com/backend-api/wham/usage",
     { headers: { Authorization: `Bearer ${token}` } }
@@ -114,18 +123,27 @@ export async function fetchCodexUsage(token: string): Promise<ProviderUsage> {
   const primary = data?.rate_limit?.primary_window;
   const secondary = data?.rate_limit?.secondary_window;
 
+  const session = readPercentCandidate(primary?.used_percent) ?? 0;
+  const weekly = readPercentCandidate(secondary?.used_percent) ?? 0;
+
   return {
     provider: "Codex",
     quotas: [{
-      session: readPercentCandidate(primary?.used_percent) ?? 0,
-      weekly: readPercentCandidate(secondary?.used_percent) ?? 0,
+      session,
+      weekly,
       sessionResetsIn: typeof primary?.reset_after_seconds === "number" ? formatDuration(primary.reset_after_seconds) : undefined,
       weeklyResetsIn: typeof secondary?.reset_after_seconds === "number" ? formatDuration(secondary.reset_after_seconds) : undefined,
-    }]
+    }],
+    debug: includeDebug
+      ? [
+          `rate_limit.primary_window.used_percent=${String(primary?.used_percent)} => ${Math.round(session)}%`,
+          `rate_limit.secondary_window.used_percent=${String(secondary?.used_percent)} => ${Math.round(weekly)}%`,
+        ]
+      : undefined,
   };
 }
 
-export async function fetchClaudeUsage(token: string): Promise<ProviderUsage> {
+export async function fetchClaudeUsage(token: string, includeDebug = false): Promise<ProviderUsage> {
   const result = await requestJson(
     "https://api.anthropic.com/api/oauth/usage",
     {
@@ -141,14 +159,23 @@ export async function fetchClaudeUsage(token: string): Promise<ProviderUsage> {
   }
 
   const data = result.data as any;
+  const session = readPercentCandidate(data?.five_hour?.utilization) ?? 0;
+  const weekly = readPercentCandidate(data?.seven_day?.utilization) ?? 0;
+
   return {
     provider: "Claude",
     quotas: [{
-      session: readPercentCandidate(data?.five_hour?.utilization) ?? 0,
-      weekly: readPercentCandidate(data?.seven_day?.utilization) ?? 0,
+      session,
+      weekly,
       sessionResetsIn: data?.five_hour?.resets_at ? formatResetsAt(data.five_hour.resets_at) : undefined,
       weeklyResetsIn: data?.seven_day?.resets_at ? formatResetsAt(data.seven_day.resets_at) : undefined,
-    }]
+    }],
+    debug: includeDebug
+      ? [
+          `five_hour.utilization=${String(data?.five_hour?.utilization)} => ${Math.round(session)}%`,
+          `seven_day.utilization=${String(data?.seven_day?.utilization)} => ${Math.round(weekly)}%`,
+        ]
+      : undefined,
   };
 }
 
@@ -269,7 +296,7 @@ function modelQuotaFromBuckets(bucketSet: GoogleQuotaBucket[], name: string): Qu
   };
 }
 
-export async function fetchGoogleUsage(token: string, projectId?: string): Promise<ProviderUsage> {
+export async function fetchGoogleUsage(token: string, projectId?: string, includeDebug = false): Promise<ProviderUsage> {
   const discoveredProjectId = projectId || (await discoverGoogleProjectId(token));
   if (!discoveredProjectId) {
     return { provider: "Gemini", quotas: [], error: "missing projectId (try /login again)" };
@@ -315,7 +342,15 @@ export async function fetchGoogleUsage(token: string, projectId?: string): Promi
     return { provider: "Gemini", quotas: [], error: "unable to parse Gemini quota buckets" };
   }
 
-  return { provider: "Gemini", quotas };
+  const debug = includeDebug
+    ? [
+        `project=${discoveredProjectId}`,
+        `buckets.total=${allBuckets.length}, requests=${requestBuckets.length || allBuckets.length}`,
+        `models.pro=${proBuckets.length}, models.flash=${flashBuckets.length}`,
+      ]
+    : undefined;
+
+  return { provider: "Gemini", quotas, debug };
 }
 
 function credentialProjectId(credential: unknown): string | undefined {
@@ -330,7 +365,7 @@ function credentialAccessToken(credential: unknown): string | undefined {
   return typeof maybe.access === "string" && maybe.access ? maybe.access : undefined;
 }
 
-export async function fetchAllUsages(): Promise<ProviderUsage[]> {
+export async function fetchAllUsages(includeDebug = false): Promise<ProviderUsage[]> {
   const auth = AuthStorage.create();
 
   const providers: { id: string; name: "Claude" | "Codex" | "Gemini" }[] = [
@@ -344,19 +379,19 @@ export async function fetchAllUsages(): Promise<ProviderUsage[]> {
       const token = await auth.getApiKey(p.id);
       if (!token) return { provider: p.name, quotas: [], error: "not logged in" };
 
-      if (p.id === "anthropic") return fetchClaudeUsage(token);
-      if (p.id === "openai-codex") return fetchCodexUsage(token);
+      if (p.id === "anthropic") return fetchClaudeUsage(token, includeDebug);
+      if (p.id === "openai-codex") return fetchCodexUsage(token, includeDebug);
 
       const credential = auth.get(p.id);
       const projectId = credentialProjectId(credential);
-      const usage = await fetchGoogleUsage(token, projectId);
+      const usage = await fetchGoogleUsage(token, projectId, includeDebug);
 
       // Defensive fallback: if refreshed token fails but stored access still works,
       // retry once with raw credential access token.
       if (usage.error?.includes("HTTP 401")) {
         const fallbackToken = credentialAccessToken(credential);
         if (fallbackToken && fallbackToken !== token) {
-          return fetchGoogleUsage(fallbackToken, projectId);
+          return fetchGoogleUsage(fallbackToken, projectId, includeDebug);
         }
       }
 

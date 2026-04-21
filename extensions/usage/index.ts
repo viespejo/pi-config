@@ -23,6 +23,15 @@ function renderBar(theme: Theme, value: number, width = 20): string {
   return theme.fg(colorForPercent(v), full) + theme.fg("dim", empty);
 }
 
+function parseUsageArgs(args: unknown): { debug: boolean } {
+  const raw = String(args ?? "").trim().toLowerCase();
+  if (!raw) return { debug: false };
+
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const debug = parts.includes("--debug") || parts.includes("-d") || parts.includes("debug");
+  return { debug };
+}
+
 // ── Usage Panel Component ────────────────────────────────────────
 
 class UsagePanelComponent {
@@ -32,11 +41,13 @@ class UsagePanelComponent {
   private onDone: () => void;
   private tui: TUI;
   private theme: Theme;
+  private debugMode: boolean;
 
-  constructor(tui: TUI, theme: Theme, onDone: () => void) {
+  constructor(tui: TUI, theme: Theme, onDone: () => void, debugMode = false) {
     this.tui = tui;
     this.theme = theme;
     this.onDone = onDone;
+    this.debugMode = debugMode;
     this.rebuild();
   }
 
@@ -47,12 +58,19 @@ class UsagePanelComponent {
     this.tui.requestRender();
   }
 
+  private toggleDebugMode() {
+    this.debugMode = !this.debugMode;
+    this.rebuild();
+    this.tui.requestRender();
+  }
+
   private rebuild() {
     this.container.clear();
     const t = this.theme;
 
     this.container.addChild(new Spacer(1));
-    this.container.addChild(new Text("  " + t.fg("accent", t.bold("Usage Status")), 0, 0));
+    const title = this.debugMode ? "Usage Status (debug)" : "Usage Status";
+    this.container.addChild(new Text("  " + t.fg("accent", t.bold(title)), 0, 0));
     this.container.addChild(new Spacer(1));
 
     if (this.loading) {
@@ -62,14 +80,18 @@ class UsagePanelComponent {
         this.renderProvider(provider);
       }
       this.container.addChild(new Spacer(1));
-      this.container.addChild(new Text("  " + t.fg("dim", "Press q or Escape to close"), 0, 0));
+      const debugHint = this.debugMode ? "d to hide debug" : "d to show debug";
+      this.container.addChild(new Text("  " + t.fg("dim", `Press ${debugHint} · q or Escape to close`), 0, 0));
     }
     this.container.addChild(new Spacer(1));
   }
 
   private renderProvider(p: ProviderUsage) {
     const t = this.theme;
-    this.container.addChild(new Text("  " + t.fg("accent", p.provider), 0, 0));
+    const providerLabel = this.debugMode
+      ? t.fg("accent", p.provider) + " " + t.fg("warning", "[DEBUG ON]")
+      : t.fg("accent", p.provider);
+    this.container.addChild(new Text("  " + providerLabel, 0, 0));
 
     if (p.error) {
       this.container.addChild(new Text("    " + t.fg("error", p.error), 0, 0));
@@ -100,6 +122,13 @@ class UsagePanelComponent {
         0, 0
       ));
     }
+
+    if (this.debugMode && p.debug?.length) {
+      this.container.addChild(new Text("    " + t.fg("muted", "Debug:"), 0, 0));
+      for (const line of p.debug) {
+        this.container.addChild(new Text("      " + t.fg("dim", line), 0, 0));
+      }
+    }
   }
 
   render(width: number): string[] {
@@ -112,6 +141,11 @@ class UsagePanelComponent {
   }
 
   handleInput(data: string) {
+    if (matchesKey(data, "d")) {
+      this.toggleDebugMode();
+      return;
+    }
+
     if (matchesKey(data, "q") || matchesKey(data, "escape")) {
       this.onDone();
     }
@@ -122,14 +156,15 @@ class UsagePanelComponent {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("usage", {
-    description: "Display current subscription quotas for Claude, Codex, and Gemini",
-    handler: async (_args, ctx) => {
+    description: "Display current subscription quotas for Claude, Codex, and Gemini (use: /usage --debug)",
+    handler: async (args, ctx) => {
       if (!ctx?.hasUI) return;
+      const { debug } = parseUsageArgs(args);
 
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        const component = new UsagePanelComponent(tui, theme, done);
-        
-        fetchAllUsages().then(data => {
+        const component = new UsagePanelComponent(tui, theme, done, debug);
+
+        fetchAllUsages(true).then(data => {
           component.setData(data);
         }).catch(err => {
           component.setData([
