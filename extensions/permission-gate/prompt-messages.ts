@@ -27,8 +27,12 @@ export const DIFF_APPROVAL_OPTIONS = [
 export const DENY_REASON_LABEL = "Why was this denied? (optional)";
 export const DENY_REASON_PLACEHOLDER = "Reason for the LLM";
 
-export function allowExecutionPrompt(tool: string) {
-  return `Tool: ${tool}\n\nAllow execution?`;
+export function allowExecutionPrompt(tool: string, target?: string) {
+  const targetBlock =
+    typeof target === "string" && target.length > 0
+      ? `\n\nTarget: ${target}`
+      : "";
+  return `Tool: ${tool}${targetBlock}\n\nAllow execution?`;
 }
 
 export function readApprovalPrompt(pathLabel: string, reasons: string[]) {

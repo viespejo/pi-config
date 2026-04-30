@@ -70,9 +70,11 @@ describe("prompt-messages", () => {
 
   it("builds allow execution and read approval prompts", () => {
     const prompt = allowExecutionPrompt("write");
+    const editPrompt = allowExecutionPrompt("edit", "src/app.ts");
     const readPrompt = readApprovalPrompt(".env", ["Target matches .gitignore rules."]);
 
     assert.equal(prompt, "Tool: write\n\nAllow execution?");
+    assert.equal(editPrompt, "Tool: edit\n\nTarget: src/app.ts\n\nAllow execution?");
     assert.match(readPrompt, /Tool: read/);
     assert.match(readPrompt, /Target: \.env/);
     assert.match(readPrompt, /Read requires confirmation/);

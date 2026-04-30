@@ -398,7 +398,13 @@ export default function (pi: ExtensionAPI) {
     try {
       const defaultOptions = defaultOptionsForTool(tool);
 
-      const promptMsg = allowExecutionPrompt(tool);
+      const promptMsg =
+        tool === "edit" || tool === "write"
+          ? allowExecutionPrompt(
+              tool,
+              extractPathFromInput(typedEvent.input as any),
+            )
+          : allowExecutionPrompt(tool);
 
       if (tool === "edit") {
         const editResult = await runEditApprovalLoop(
