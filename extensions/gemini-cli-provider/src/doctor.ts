@@ -197,7 +197,15 @@ function buildReport(checks: DoctorCheckResult[]): DoctorReport {
   }) as DoctorReport;
 }
 
-export async function runGeminiCliDoctor(args: string, ctx: ExtensionCommandContext): Promise<void> {
+interface DoctorRunHooks {
+	onHumanReport?: (payload: { text: string; status: DoctorStatus }) => void;
+}
+
+export async function runGeminiCliDoctor(
+	args: string,
+	ctx: ExtensionCommandContext,
+	hooks?: DoctorRunHooks,
+): Promise<void> {
   const options = parseOptions(args);
   const checks: DoctorCheckResult[] = [];
 
@@ -288,7 +296,13 @@ export async function runGeminiCliDoctor(args: string, ctx: ExtensionCommandCont
   if (options.json) {
     console.log(JSON.stringify(report));
   } else {
-    console.log(formatHumanReport(report, options.verbose));
+    const humanReport = formatHumanReport(report, options.verbose);
+    if (ctx.hasUI) {
+      hooks?.onHumanReport?.({ text: humanReport, status: report.status });
+      ctx.ui.notify(`Gemini CLI Doctor: ${report.status.toUpperCase()}`, report.status === "fail" ? "error" : "info");
+    } else {
+      console.log(humanReport);
+    }
   }
 
   if (report.status === "fail" && !ctx.hasUI) {

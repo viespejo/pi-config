@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@mariozechner/pi-ai": "latest",
-    "@mariozechner/pi-coding-agent": "latest"
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-tui": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
