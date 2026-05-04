@@ -6,13 +6,14 @@
  *   /plan:save focus on the error handling approach we discussed
  */
 
-import * as path from "node:path";
-
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { getConfig, loadConfig } from "../lib/config";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";
-import { resolveInterviewContext } from "../lib/plan-save-context-resolver";
+import {
+  resolveInterviewContext,
+  resolvePlanReferencePaths,
+} from "../lib/plan-save-context-resolver";
 
 function buildStrictPlanningPrompt(params: {
   additionalInstructions: string;
@@ -253,22 +254,16 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
             .join("\n")}\n</summary_sources>\n<usage_rules>\n- Summaries are available as references only (not preloaded).\n- Consult summary files on-demand if continuity gaps appear.\n- If interview context and summaries conflict, ask the user during Delta Interview.\n</usage_rules>\n</continuity_context>`
         : `<continuity_context>\n<summary_sources>none</summary_sources>\n</continuity_context>`;
 
-      const referencesDir = path.resolve(
-        ctx.cwd,
-        "extensions",
-        "planning",
-        "lib",
-        "references",
-      );
+      const referencePaths = await resolvePlanReferencePaths();
+      if (!referencePaths) {
+        ctx.ui.notify(
+          "Could not resolve planning references: expected plan-format.md and plan-template.md",
+          "error",
+        );
+        return;
+      }
 
-      const planFormatReferencePath = path.join(
-        referencesDir,
-        "plan-format.md",
-      );
-      const planTemplateReferencePath = path.join(
-        referencesDir,
-        "plan-template.md",
-      );
+      const { planFormatReferencePath, planTemplateReferencePath } = referencePaths;
 
       const materializationDate = new Date().toISOString().slice(0, 10);
 

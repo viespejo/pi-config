@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { InterviewContextSortOrder } from "./config";
@@ -25,6 +26,11 @@ export interface ResolvedInterviewContext {
   confidence?: "high" | "low";
 }
 
+export interface PlanReferencePaths {
+  planFormatReferencePath: string;
+  planTemplateReferencePath: string;
+}
+
 async function isReadableNonEmpty(filePath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(filePath);
@@ -32,6 +38,28 @@ async function isReadableNonEmpty(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function resolvePlanReferencePaths(): Promise<PlanReferencePaths | null> {
+  const referencesDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "references",
+  );
+
+  const planFormatReferencePath = path.join(referencesDir, "plan-format.md");
+  const planTemplateReferencePath = path.join(referencesDir, "plan-template.md");
+
+  const [formatOk, templateOk] = await Promise.all([
+    isReadableNonEmpty(planFormatReferencePath),
+    isReadableNonEmpty(planTemplateReferencePath),
+  ]);
+
+  if (!formatOk || !templateOk) return null;
+
+  return {
+    planFormatReferencePath,
+    planTemplateReferencePath,
+  };
 }
 
 export async function discoverInterviewPairs(cwd: string): Promise<TechnicalInterviewCandidate[]> {
