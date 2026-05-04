@@ -63,46 +63,104 @@ If template and format guidance conflict, follow the plan format reference.
 Run collaborative planning interview before writing files.
 Goal: agree implementation approach with explicit decision records.
 
-<collaborative_interview_contract>
-For each major decision, use this exact structure:
-[Planning Decision N]
-Story: <story id/title>
-Decision area: <api/data/ui/testing/deployment/etc>
-Why it matters: <impact>
+<interview_behavior>
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
-Recommendation:
-<preferred option + rationale>
+Ask the questions one at a time.
 
-Pros:
-- ...
+If a question can be answered by exploring the codebase, explore the codebase instead.
+</interview_behavior>
 
-Cons:
-- ...
+<workflow_rules>
+Follow a strict "Write-After-Approval" Confirmation Loop:
 
-Devil's advocate:
-- <strong objection or failure mode>
+Shared steps (always):
+1. In the chat, propose a summary of what you are going to register (Decision, Nuances, TODOs).
+2. Ask for explicit confirmation from the user (e.g., "Is this correct?").
 
-Risks:
-- Risk: <description>
-  Probability: <low/med/high>
-  Impact: <low/med/high>
-  Mitigation: <action>
+If persistence mode is NOT active:
+3. DO NOT write interview artifacts to disk. The chat acts as a staging area.
+4. ONLY AFTER the user approves or corrects the summary, update the in-chat tracked decisions/state (no disk artifacts yet).
+5. Once the summary is confirmed, ask your next technical question.
 
-Decision status:
-- accepted | rejected | parked
+If persistence mode IS active:
+3. DO NOT write to disk yet. The chat acts as a staging area.
+4. ONLY AFTER the user approves or corrects the summary, use your tools to update the physical artifacts.
+5. Once written to disk, ask your next technical question.
+</workflow_rules>
 
-Notes:
-- assumptions
-- dependencies
-- follow-up checks
-</collaborative_interview_contract>
+<negative_constraints>
+To ensure the integrity of the design process, you MUST NOT do any of the following:
+- DO NOT invent, infer, or assume decisions that the user has not explicitly approved.
+- If we are in persistence mode, DO NOT write or edit the physical files on disk before receiving explicit confirmation from the user in the chat.
+- If we are not in persistence mode, DO NOT write or edit physical interview artifacts on disk.
+- DO NOT ask multiple technical questions at once. Walk down branches one by one.
+- DO NOT compress or summarize discussions in the Consolidated Plan in a way that loses critical trade-offs or nuances.
+</negative_constraints>
+
+<persistence_activation>
+Start in non-persistent mode.
+
+Activate persistence mode when ANY of the following is true:
+- The user explicitly asks to persist interview state or to resume later.
+- The interview reaches long-session risk (>= 10 technical turns).
+- There are >= 3 accepted non-trivial decisions.
+- Cross-decision dependency coupling or contradiction risk is detected.
+
+Activation behavior (mandatory):
+- Persistence mode becomes mandatory for the rest of this /plan:save run.
+- Before asking the next technical question, backfill all previously accepted decisions into:
+  - Decision Log (\`..._log.md\`)
+  - Consolidated Plan (\`..._plan.md\`)
+- Ask user confirmation for each backfilled registration using the same confirmation loop rules.
+</persistence_activation>
+
+<tool_usage required_only_if="persistence_mode_active">
+To prevent context degradation ("Lost in the Middle") over a long session, you MUST maintain two artifacts continuously on the local file system using your file manipulation tools:
+1. A Decision Log (\`..._log.md\`)
+2. A Consolidated Plan (\`..._plan.md\`)
+
+Location: \`docs/technical-interviews/\` (create it if it doesn't exist).
+Naming: If this is the first interaction, generate a unique filename with a temporary slug (e.g., \`tmp_abc123_log.md\`). Once the core topic is clear, use \`bash\` (e.g., \`mv\`) to rename the files to a descriptive topic-based slug.
+
+Efficiency: DO NOT read the full artifacts every turn just to append to them (neither using the \`read\` tool nor \`cat\` in bash). Rely on your context window and target edits based on your memory.
+Read-on-Demand: You ARE PERMITTED and encouraged to \`read\` the Consolidated Plan if you detect ambiguity, contradiction, or if you need to review critical past dependencies to formulate the next question.
+</tool_usage>
+
+<artifact_schemas required_only_if="persistence_mode_active">
+Maintain stable Tracking IDs to ensure context stability. All artifacts must be written in English.
+
+Decision Log (Append-only format):
+Use stable IDs (DEC-001, DEC-002... and optionally TODO-001, RISK-001). Never rewrite or delete previous decisions.
+Format:
+## [ID]
+- **Question**: ...
+- **Context/Nuances**: ...
+- **User Response**: ...
+- **Decision**: ...
+- **Status**: [Accepted / Pending]
+
+Consolidated Plan (Mutable format):
+This represents the current state of the design. Rewrite or append to sections as needed based on the Decision Log. It should read naturally, but MUST append \`[DEC-XXX]\` tracking tags at the end of relevant paragraphs to ensure traceability back to the log.
+</artifact_schemas>
+
+<examples>
+GOOD Plan Snippet (natural narrative with traceability):
+"The system will use a Postgres database to ensure ACID compliance [DEC-004]. However, to handle high read traffic, a Redis caching layer will be introduced later [DEC-005, TODO-002]."
+
+BAD Plan Snippet (too robotic, missing narrative):
+"- Database: Postgres [DEC-004]
+- Cache: Redis [DEC-005]
+- Pending: [TODO-002]"
+</examples>
 
 Rules:
 - Use loaded interview context as primary source of truth when present.
 - If interview context paths are provided, read those files before deciding whether Delta Interview is needed.
 - Do not read plan-format or plan-template in this step.
+- Start Delta Interview only if unresolved or uncertain implementation questions remain after reading available interview context.
+- If no Delta questions remain, proceed directly to draft construction.
 - Ask only missing/uncertain implementation questions (Delta-only).
-- Resolve one major decision at a time.
 - Do not jump to file generation while decisions are unresolved.
 - If uncertainty remains, consult PRD/architecture on-demand.
 </step>
