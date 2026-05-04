@@ -1766,7 +1766,7 @@ async function deleteTodo(
 export default function todosExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const todosDir = getTodosDir(ctx.cwd);
-    await ensureTodosDir(todosDir);
+    // await ensureTodosDir(todosDir);
     const settings = await readTodoSettings(todosDir);
     await garbageCollectTodos(todosDir, settings);
   });
