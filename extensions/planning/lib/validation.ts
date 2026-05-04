@@ -21,6 +21,7 @@ export interface ValidatedPlanFrontmatter {
   title: string;
   directory: string;
   project?: string;
+  phase?: string;
   status: PlanStatus;
   dependencies: string[];
   dependents: string[];
@@ -115,6 +116,7 @@ export function validatePlanFrontmatter(
     asOptionalString(record.title) ?? context.filename.replace(/\.md$/, "");
   const directory = asOptionalString(record.directory) ?? context.cwd;
   const project = asOptionalString(record.project);
+  const phase = asOptionalString(record.phase);
   const status =
     record.status === undefined ? "pending" : asStatus(record.status);
 
@@ -127,6 +129,7 @@ export function validatePlanFrontmatter(
     title,
     directory,
     project,
+    phase,
     status,
     dependencies,
     dependents,

@@ -2,7 +2,8 @@
   "name": "pi-planning",
   "type": "module",
   "scripts": {
-    "test": "node --test --experimental-strip-types tests/*.test.ts"
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "pi": {
     "extensions": [

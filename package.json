@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node tests/pi-editor/run.mjs",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:planning": "tsc -p extensions/planning/tsconfig.json --noEmit"
   },
   "keywords": [
     "pi",

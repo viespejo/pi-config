@@ -21,6 +21,39 @@ export interface PlanRepositoryOptions {
 const FRONTMATTER_SCAN_CHUNK_BYTES = 4096;
 const FRONTMATTER_SCAN_MAX_BYTES = 64 * 1024;
 
+function parseSemanticPrefix(value: string): { major: number; minor: number } | null {
+  const match = value.match(/^(\d+)-(\d+)(?:$|[-_])/);
+  if (!match) return null;
+
+  const major = Number.parseInt(match[1] ?? "", 10);
+  const minor = Number.parseInt(match[2] ?? "", 10);
+
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return null;
+  return { major, minor };
+}
+
+function comparePlanFilenamesSemantically(a: string, b: string): number {
+  const aBase = a.endsWith(".md") ? a.slice(0, -3) : a;
+  const bBase = b.endsWith(".md") ? b.slice(0, -3) : b;
+
+  const prefixA = parseSemanticPrefix(aBase);
+  const prefixB = parseSemanticPrefix(bBase);
+
+  if (prefixA && prefixB) {
+    if (prefixA.major !== prefixB.major) return prefixA.major - prefixB.major;
+    if (prefixA.minor !== prefixB.minor) return prefixA.minor - prefixB.minor;
+  } else if (prefixA && !prefixB) {
+    return -1;
+  } else if (!prefixA && prefixB) {
+    return 1;
+  }
+
+  return aBase.localeCompare(bBase, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function findFrontmatterEnd(content: string): number | null {
   const match = content.slice(4).match(/\r?\n---(?:\r?\n|$)/);
   if (!match || match.index === undefined) return null;
@@ -90,6 +123,7 @@ function mapPlanInfoFromFile(
     title: validated.title,
     directory: validated.directory,
     project: validated.project,
+    phase: validated.phase,
     status: validated.status,
     dependencies: validated.dependencies,
     dependents: validated.dependents,
@@ -155,8 +189,7 @@ export function createPlanRepository(
       const files = await fs.readdir(plansPath);
       const mdFiles = files
         .filter((f) => f.endsWith(".md"))
-        .sort()
-        .reverse();
+        .sort(comparePlanFilenamesSemantically);
 
       const plans: PlanInfo[] = [];
       for (const filename of mdFiles) {

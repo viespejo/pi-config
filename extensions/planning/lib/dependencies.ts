@@ -6,16 +6,10 @@ import type { DependencyCheckResult, DependencyNode, PlanInfo } from "./types";
 
 /**
  * Derive slug from filename
- * Example: "2026-01-22-phase-1-auth.md" -> "phase-1-auth"
+ * Example: "01-01-my-plan.md" -> "01-01-my-plan"
  */
 export function deriveSlug(filename: string): string {
-  // Remove .md extension
-  let slug = filename.replace(/\.md$/, "");
-
-  // Remove date prefix (YYYY-MM-DD-)
-  slug = slug.replace(/^\d{4}-\d{2}-\d{2}-/, "");
-
-  return slug;
+  return filename.replace(/\.md$/, "");
 }
 
 /**

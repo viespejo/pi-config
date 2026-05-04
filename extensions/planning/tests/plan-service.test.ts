@@ -44,6 +44,7 @@ test("createPlanService exposes the expected operations", () => {
 
   assert.equal(typeof service.getPlansPath, "function");
   assert.equal(typeof service.listPlans, "function");
+  assert.equal(typeof service.suggestNextPlan, "function");
   assert.equal(typeof service.readPlan, "function");
   assert.equal(typeof service.updatePlanStatus, "function");
   assert.equal(typeof service.assignPlanSession, "function");
@@ -105,6 +106,53 @@ test("deletePlan delegates with exact arguments", async () => {
   await service.deletePlan("/plans/p1.md");
 
   assert.deepEqual(calls, [["delete", "/plans/p1.md"]]);
+});
+
+test("suggestNextPlan returns 01-01 on empty/legacy repository", async () => {
+  const { repository } = createFakeRepository({
+    list: async () => [{ filename: "legacy-plan.md", slug: "legacy-plan" }] as never,
+  });
+  const service = createPlanService(repository);
+
+  const suggestion = await service.suggestNextPlan();
+
+  assert.equal(suggestion.recommendedFilenamePrefix, "01-01");
+  assert.deepEqual(suggestion.recommendedDependencies, []);
+  assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "02-01");
+});
+
+test("suggestNextPlan increments latest semantic plan in same phase", async () => {
+  const { repository } = createFakeRepository({
+    list: async () => [
+      { filename: "01-01-foundation.md", slug: "01-01-foundation", phase: "01-strict-planning" },
+      { filename: "01-02-ux.md", slug: "01-02-ux", phase: "01-strict-planning" },
+    ] as never,
+  });
+  const service = createPlanService(repository);
+
+  const suggestion = await service.suggestNextPlan();
+
+  assert.equal(suggestion.latestPlan, "01-02-ux.md");
+  assert.equal(suggestion.recommendedFilenamePrefix, "01-03");
+  assert.deepEqual(suggestion.recommendedDependencies, ["01-02-ux"]);
+  assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "02-01");
+});
+
+test("suggestNextPlan follows highest phase/plan combination", async () => {
+  const { repository } = createFakeRepository({
+    list: async () => [
+      { filename: "01-10-a.md", slug: "01-10-a" },
+      { filename: "02-01-b.md", slug: "02-01-b" },
+      { filename: "01-99-c.md", slug: "01-99-c" },
+    ] as never,
+  });
+  const service = createPlanService(repository);
+
+  const suggestion = await service.suggestNextPlan();
+
+  assert.equal(suggestion.recommendedFilenamePrefix, "02-02");
+  assert.deepEqual(suggestion.recommendedDependencies, ["02-01-b"]);
+  assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "03-01");
 });
 
 test("service propagates repository errors", async () => {

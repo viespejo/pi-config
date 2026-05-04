@@ -21,7 +21,9 @@ function hasSessionMessages(ctx: ExtensionCommandContext): boolean {
   return entries.some((e) => e.type === "message");
 }
 
-function sessionIdFromContext(ctx: ExtensionCommandContext): string {
+function sessionIdFromContext(
+  ctx: ExtensionCommandContext,
+): string | undefined {
   return ctx.sessionManager.getSessionFile();
 }
 
@@ -76,6 +78,10 @@ export async function executePlanFlow(
   }
 
   const currentSessionId = sessionIdFromContext(ctx);
+  if (!currentSessionId) {
+    ctx.ui.notify("Cannot execute: missing active session id", "error");
+    return;
+  }
 
   try {
     await planService.assignPlanSession(plan.path, currentSessionId);

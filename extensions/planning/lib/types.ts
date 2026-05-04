@@ -18,6 +18,7 @@ export interface PlanInfo {
   title: string;
   directory: string;
   project?: string;
+  phase?: string;
   status: PlanStatus;
   dependencies: string[];
   dependents: string[];
