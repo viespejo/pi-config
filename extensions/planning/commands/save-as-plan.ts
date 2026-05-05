@@ -6,7 +6,10 @@
  *   /plan:save focus on the error handling approach we discussed
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+  copyToClipboard,
+  type ExtensionAPI,
+} from "@mariozechner/pi-coding-agent";
 import { getConfig, loadConfig } from "../lib/config";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";
@@ -325,7 +328,7 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
 
       const materializationDate = new Date().toISOString().slice(0, 10);
 
-      const prompt = buildStrictPlanningPrompt({
+      let prompt = buildStrictPlanningPrompt({
         additionalInstructions,
         contextSummary,
         interviewContextReference,
@@ -335,6 +338,50 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
         numberingSuggestion,
         materializationDate,
       });
+
+      if (ctx.hasUI) {
+        const choice = await ctx.ui.select("/plan:save · prompt delivery", [
+          "Send now",
+          "Preview/edit before sending",
+          "Copy prompt to clipboard",
+          "Cancel",
+        ]);
+
+        if (!choice || choice === "Cancel") {
+          ctx.ui.notify("/plan:save cancelled", "info");
+          return;
+        }
+
+        if (choice === "Preview/edit before sending") {
+          const edited = await ctx.ui.editor(
+            "Review/edit the prompt to be sent:",
+            prompt,
+          );
+
+          if (typeof edited !== "string") {
+            ctx.ui.notify("/plan:save cancelled", "info");
+            return;
+          }
+
+          if (!edited.trim()) {
+            ctx.ui.notify("Empty prompt: /plan:save cancelled", "warning");
+            return;
+          }
+
+          prompt = edited;
+        }
+
+        if (choice === "Copy prompt to clipboard") {
+          try {
+            copyToClipboard(prompt);
+            ctx.ui.notify("Prompt copied to clipboard", "info");
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.ui.notify(`Failed to copy prompt: ${message}`, "error");
+          }
+          return;
+        }
+      }
 
       pi.sendUserMessage(prompt);
     },
