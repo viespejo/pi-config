@@ -1,0 +1,15 @@
+{
+  "name": "pi-vertex-anthropic",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@anthropic-ai/vertex-sdk": "^0.16.0"
+  }
+}
