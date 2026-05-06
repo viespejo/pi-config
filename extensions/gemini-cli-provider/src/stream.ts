@@ -478,6 +478,8 @@ export function streamGeminiCli(
         let buffer = "";
         let activeBlock: TextContent | ThinkingContent | null = null;
         let hasAnyContent = false;
+        const pendingToolCalls = new Map<string, ToolCall>();
+        const pendingToolCallOrder: string[] = [];
 
         const abortHandler = () => {
           void reader.cancel().catch(() => {});
@@ -493,6 +495,21 @@ export function streamGeminiCli(
             stream.push({ type: "thinking_end", contentIndex: index, content: activeBlock.thinking, partial: output });
           }
           activeBlock = null;
+        };
+
+        const flushPendingToolCalls = () => {
+          for (const key of pendingToolCallOrder) {
+            const toolCall = pendingToolCalls.get(key);
+            if (!toolCall) continue;
+            blocks.push(toolCall);
+            const contentIndex = blocks.length - 1;
+            ensureStarted();
+            stream.push({ type: "toolcall_start", contentIndex, partial: output });
+            stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(toolCall.arguments), partial: output });
+            stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
+          }
+          pendingToolCalls.clear();
+          pendingToolCallOrder.length = 0;
         };
 
         try {
@@ -556,31 +573,47 @@ export function streamGeminiCli(
                   if (part.functionCall) {
                     hasAnyContent = true;
                     closeActiveBlock();
-                    const providedId = part.functionCall.id;
-                    const needsNewId =
-                      !providedId || blocks.some((b) => b.type === "toolCall" && b.id === providedId);
-                    const toolCallId = needsNewId
-                      ? `${part.functionCall.name || "tool"}_${Date.now()}_${++toolCallCounter}`
-                      : providedId;
 
-                    const toolCall: ToolCall = {
-                      type: "toolCall",
-                      id: toolCallId,
-                      name: part.functionCall.name || "unknown",
-                      arguments: part.functionCall.args || {},
-                      ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
+                    const fallbackKey = `__noid_${part.functionCall.name || "tool"}`;
+                    const key = part.functionCall.id || fallbackKey;
+                    let existing = pendingToolCalls.get(key);
+
+                    if (!existing) {
+                      const providedId = part.functionCall.id;
+                      const needsNewId =
+                        !providedId ||
+                        blocks.some((b) => b.type === "toolCall" && b.id === providedId) ||
+                        Array.from(pendingToolCalls.values()).some((b) => b.id === providedId);
+                      const toolCallId = needsNewId
+                        ? `${part.functionCall.name || "tool"}_${Date.now()}_${++toolCallCounter}`
+                        : providedId;
+
+                      existing = {
+                        type: "toolCall",
+                        id: toolCallId,
+                        name: part.functionCall.name || "unknown",
+                        arguments: {},
+                        ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
+                      };
+                      pendingToolCalls.set(key, existing);
+                      pendingToolCallOrder.push(key);
+                    }
+
+                    existing.name = part.functionCall.name || existing.name;
+                    existing.arguments = {
+                      ...existing.arguments,
+                      ...(part.functionCall.args || {}),
                     };
-                    blocks.push(toolCall);
-                    const contentIndex = blocks.length - 1;
-                    ensureStarted();
-                    stream.push({ type: "toolcall_start", contentIndex, partial: output });
-                    stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(toolCall.arguments), partial: output });
-                    stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
+                    if (part.thoughtSignature) {
+                      existing.thoughtSignature = part.thoughtSignature;
+                    }
                   }
                 }
               }
 
               if (candidate?.finishReason) {
+                closeActiveBlock();
+                flushPendingToolCalls();
                 output.stopReason = mapStopReason(candidate.finishReason);
                 if (output.content.some((block) => block.type === "toolCall")) {
                   output.stopReason = "toolUse";
@@ -606,6 +639,7 @@ export function streamGeminiCli(
         }
 
         closeActiveBlock();
+        flushPendingToolCalls();
         return hasAnyContent;
       };
 
