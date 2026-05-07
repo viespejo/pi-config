@@ -1,4 +1,4 @@
-import type { Api, Model, OAuthCredentials } from "@mariozechner/pi-ai";
+import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
 
 export const GEMINI_CLI_PROVIDER_ID = "google-gemini-cli" as const;
 export const GEMINI_CLI_PROVIDER_DISPLAY_NAME = "Google Gemini CLI";

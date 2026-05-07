@@ -1,11 +1,11 @@
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
   fuzzyFilter,
   matchesKey,
   truncateToWidth,
   visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import type { PlanInfo } from "./types";
 
 type KeybindingsLike = {

@@ -1,5 +1,5 @@
-import { DynamicBorder, type Theme } from "@mariozechner/pi-coding-agent";
-import { Container, Text } from "@mariozechner/pi-tui";
+import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
+import { Container, Text } from "@earendil-works/pi-tui";
 
 export interface ActivePlanWidgetState {
   title: string;

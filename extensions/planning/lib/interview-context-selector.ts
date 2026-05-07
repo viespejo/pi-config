@@ -1,10 +1,10 @@
-import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
   fuzzyFilter,
   truncateToWidth,
   visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 export interface InterviewContextOption {
   slug: string;

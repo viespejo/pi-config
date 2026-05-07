@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Api, Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { streamGeminiCli } from "../src/stream";
 
 function testModel(id = "gemini-3.1-pro-preview"): Model<Api> {

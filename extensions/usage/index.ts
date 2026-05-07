@@ -1,5 +1,5 @@
-import { type ExtensionAPI, type Theme } from "@mariozechner/pi-coding-agent";
-import { matchesKey, type TUI, Container, Spacer, Text } from "@mariozechner/pi-tui";
+import { type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import { matchesKey, type TUI, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { fetchAllUsages, type ProviderUsage } from "./core";
 
 // ── Helpers ──────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setupExecutePlanCommand } from "./execute-plan";
 import { setupListPlansCommand } from "./list-plans";
 import { setupSaveAsPlanCommand } from "./save-as-plan";

@@ -1,6 +1,6 @@
-import { completeSimple, type UserMessage } from "@mariozechner/pi-ai";
-import type { Api, Model } from "@mariozechner/pi-ai";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { completeSimple, type UserMessage } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const EXPLAIN_TIMEOUT_MS = 15_000;
 const MAX_COMMAND_CHARS = 4_000;

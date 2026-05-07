@@ -18,8 +18,8 @@ elif [[ -n "${1:-}" ]]; then
 fi
 
 if [[ "$DO_UPDATE" -eq 1 ]]; then
-  echo "[1/3] Actualizando @mariozechner/pi-coding-agent global..."
-  npm i -g @mariozechner/pi-coding-agent@latest
+  echo "[1/3] Actualizando @earendil-works/pi-coding-agent global..."
+  npm i -g @earendil-works/pi-coding-agent@latest
 else
   echo "[1/3] Saltando update (--no-update)"
 fi

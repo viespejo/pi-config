@@ -6,7 +6,7 @@
  *   /plan:execute <slug-or-filename>
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { executePlanFlow } from "../lib/execute-plan";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";

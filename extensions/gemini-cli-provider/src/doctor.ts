@@ -1,5 +1,5 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { redactText, redactUnknown } from "./redaction";
 import {
   createUnsupportedModelError,

@@ -19,7 +19,7 @@ export function loadComputeEditsDiffOnce() {
   if (computeEditsDiffLoadPromise) return computeEditsDiffLoadPromise;
 
   computeEditsDiffLoadPromise = (async () => {
-    const pkgName = "@mariozechner/pi-coding-agent";
+    const pkgName = "@earendil-works/pi-coding-agent";
 
     const tryLoadFromAbsolutePath = async (
       editDiffPath: string,

@@ -1,5 +1,5 @@
-import type { ExtensionAPI, Theme } from "@mariozechner/pi-coding-agent";
-import { Container, matchesKey, Spacer, Text, type TUI } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { Container, matchesKey, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import { runGeminiCliDoctor } from "./doctor";
 import { geminiCliProviderConfig } from "./provider";
 import { GEMINI_CLI_PROVIDER_ID } from "./types";

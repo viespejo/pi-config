@@ -9,7 +9,7 @@
 import {
   copyToClipboard,
   type ExtensionAPI,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { getConfig, loadConfig } from "../lib/config";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";

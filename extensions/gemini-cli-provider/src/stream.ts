@@ -10,7 +10,7 @@ import {
   type TextContent,
   type ThinkingContent,
   type ToolCall,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import {
   createUnsupportedModelError,
   GEMINI_CLI_BASE_URL,

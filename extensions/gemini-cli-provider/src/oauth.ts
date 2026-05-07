@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
-import type { OAuthCredentials, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
-import type { ProviderConfig } from "@mariozechner/pi-coding-agent";
+import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
+import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
 import type { GeminiCliCredentials } from "./types";
 
 const decode = (value: string) => atob(value);

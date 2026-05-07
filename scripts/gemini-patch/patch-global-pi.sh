@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET="$(npm root -g)/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/providers/google-gemini-cli.js"
+TARGET="$(npm root -g)/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/google-gemini-cli.js"
 PATCH_FILE="$(cd "$(dirname "$0")" && pwd)/pi-gemini-headers.patch"
 
 echo "[info] target: $TARGET"

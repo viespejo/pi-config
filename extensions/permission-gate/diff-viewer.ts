@@ -3,7 +3,7 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 export async function showDiffInCustomDialog(
   ctx: any,

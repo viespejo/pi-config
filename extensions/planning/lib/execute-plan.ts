@@ -5,7 +5,7 @@
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { checkDependencies, findDependencyCycle, PlanError } from "./plan-utils";
 import {
   createPlanExecutionWidget,
