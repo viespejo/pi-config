@@ -18,7 +18,10 @@ export type NeovimReviewAdapters = {
     encoding: BufferEncoding,
   ) => Promise<void>;
   mkdtemp?: (prefix: string) => Promise<string>;
-  rm?: (path: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm?: (
+    path: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
   spawnNvim?: (args: string[]) => Promise<SpawnResult>;
 };
 
@@ -101,9 +104,110 @@ export async function reviewInNeovim(params: {
   }
 }
 
+const commandExists = (commandName: string): boolean => {
+  const probe = spawnSync("bash", [
+    "-lc",
+    `command -v ${commandName} >/dev/null 2>&1`,
+  ]);
+  return probe.status === 0;
+};
+
+const splitCommand = (
+  command: string,
+): { executable: string; args: string[] } => {
+  const parts =
+    command
+      .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
+      ?.map((part) => part.replace(/^['"]|['"]$/g, "")) ?? [];
+
+  if (parts.length === 0) {
+    return { executable: "nvim", args: [] };
+  }
+
+  return {
+    executable: parts[0]!,
+    args: parts.slice(1),
+  };
+};
+
+const isPiEditorExecutable = (executable: string): boolean =>
+  nodePath.basename(executable).toLowerCase() === "pi-editor";
+
+const ensurePiEditorPlainModeArgs = (args: string[]): string[] => {
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--mode") {
+      return [...args];
+    }
+  }
+
+  return ["--mode", "plain", ...args];
+};
+
+const stripPiEditorModeArgs = (args: string[]): string[] => {
+  const nextArgs = [...args];
+  for (let i = 0; i < nextArgs.length; i += 1) {
+    if (nextArgs[i] === "--mode") {
+      nextArgs.splice(i, 2);
+      break;
+    }
+  }
+  return nextArgs;
+};
+
+const buildPiEditorDiffArgs = (
+  args: string[],
+  originalFile: string,
+  workingFile: string,
+): string[] => {
+  const extraArgs = stripPiEditorModeArgs(args);
+  return [
+    "--mode",
+    "diff",
+    originalFile,
+    workingFile,
+    ...(extraArgs.length > 0 ? ["--", ...extraArgs] : []),
+  ];
+};
+
+const isVimLikeEditor = (editorName: string): boolean =>
+  editorName === "nvim" ||
+  editorName === "vim" ||
+  editorName === "vi" ||
+  editorName.endsWith("nvim") ||
+  editorName.endsWith("vim");
+
+const getPreferredEditorCommand = (): string => {
+  const configured = process.env.PI_PERMISSION_GATE_EDITOR?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  if (commandExists("pi-editor")) {
+    return "pi-editor --mode plain";
+  }
+
+  return "nvim";
+};
 async function defaultSpawnNvim(args: string[]): Promise<SpawnResult> {
   try {
-    const res = spawnSync("nvim", args, {
+    const editorCmd = getPreferredEditorCommand();
+    const { executable, args: baseArgs } = splitCommand(editorCmd);
+    const editorName = nodePath.basename(executable).toLowerCase();
+
+    const diffIndex = args.indexOf("-d");
+    const diffOld = diffIndex >= 0 ? args[diffIndex + 1] : undefined;
+    const diffNew = diffIndex >= 0 ? args[diffIndex + 2] : undefined;
+    let editorArgs: string[];
+    if (isPiEditorExecutable(executable) && diffOld && diffNew) {
+      const piBaseArgs = ensurePiEditorPlainModeArgs(baseArgs);
+      editorArgs = buildPiEditorDiffArgs(piBaseArgs, diffOld, diffNew);
+    } else if (isVimLikeEditor(editorName)) {
+      editorArgs = [...baseArgs, ...args];
+    } else {
+      editorArgs = [...baseArgs, ...args];
+    }
+
+    const res = spawnSync(executable, editorArgs, {
       stdio: "inherit",
       env: { ...process.env },
     });
@@ -111,7 +215,7 @@ async function defaultSpawnNvim(args: string[]): Promise<SpawnResult> {
     if (res.error) {
       return {
         ok: false,
-        reason: `failed to launch nvim: ${res.error.message}`,
+        reason: `failed to launch editor (${editorCmd}): ${res.error.message}`,
       };
     }
 
@@ -121,12 +225,12 @@ async function defaultSpawnNvim(args: string[]): Promise<SpawnResult> {
 
     return {
       ok: false,
-      reason: `nvim exited with code ${String(res.status)}`,
+      reason: `${editorCmd} exited with code ${String(res.status)}`,
     };
   } catch (err) {
     return {
       ok: false,
-      reason: `failed to launch nvim: ${err instanceof Error ? err.message : String(err)}`,
+      reason: `failed to launch editor: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }

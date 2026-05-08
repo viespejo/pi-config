@@ -1216,15 +1216,14 @@ process.exit(0);
     },
   },
   {
-    name: "pi-editor-no-wait-is-rejected-outside-plain-mode",
+    name: "pi-editor-no-wait-is-rejected-in-context-mode",
     ac: ["AC-2b"],
-    setup: "Invoke non-plain modes with --no-wait.",
-    invocation: "Run runPiEditor with invalid no-wait usage.",
+    setup: "Invoke context mode with --no-wait.",
+    invocation: "Run runPiEditor with invalid context no-wait usage.",
     assertions:
-      "--no-wait outside plain throws usage error with exitCode=2.",
+      "--no-wait in context mode throws usage error with exitCode=2.",
     run: async () => {
       const invalidArgvCases = [
-        ["--mode", "diff", "--no-wait", "old", "new"],
         ["--mode", "context", "--no-wait", "prompt.md"],
         ["--no-wait", "prompt.md"],
       ];
@@ -1445,16 +1444,16 @@ process.exit(0);
     },
   },
   {
-    name: "pi-editor-cli-invalid-no-wait-outside-plain-returns-usage-and-exit-2",
+    name: "pi-editor-cli-invalid-no-wait-in-context-returns-usage-and-exit-2",
     ac: ["AC-2b"],
-    setup: "Run pi-editor CLI entrypoint with --mode diff --no-wait.",
-    invocation: "Spawn node scripts/pi-editor.mjs --mode diff --no-wait old new.",
+    setup: "Run pi-editor CLI entrypoint with --mode context --no-wait.",
+    invocation: "Spawn node scripts/pi-editor.mjs --mode context --no-wait prompt.md.",
     assertions: "CLI prints usage message and exits with status code 2.",
     run: async () => {
       const scriptPath = path.join(process.cwd(), "scripts", "pi-editor.mjs");
       const result = spawnSync(
         "node",
-        [scriptPath, "--mode", "diff", "--no-wait", "old", "new"],
+        [scriptPath, "--mode", "context", "--no-wait", "prompt.md"],
         {
           encoding: "utf8",
         },

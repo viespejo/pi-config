@@ -332,14 +332,13 @@ function withStandaloneDiffUiCommands(editorArgs) {
   return args;
 }
 
-function buildNvrPassthroughEditorArgs(editorArgs) {
+function buildNvrPassthroughEditorArgs(editorArgs, options = {}) {
   const diff = parseDiffArgs(editorArgs);
   if (!diff) {
     return [...editorArgs];
   }
 
   const escapedOldPath = escapeVimString(diff.oldFile);
-  const escapedNewPath = escapeVimString(diff.newFile);
   const openVerticalDiffCmd =
     `execute 'leftabove vert diffsplit ' . fnameescape('${escapedOldPath}')`;
   const readonlyOldWindowCmd =
@@ -348,14 +347,13 @@ function buildNvrPassthroughEditorArgs(editorArgs) {
     "', ':p') | setlocal readonly nomodifiable | else | setlocal noreadonly modifiable | endif";
   const setupWindowsCmd =
     "wincmd h | setlocal bufhidden=wipe | diffthis | wincmd l | setlocal bufhidden=wipe | diffthis";
-  const closeOldOnNewLeaveCmd =
+
+  const closePairFromNewCmd =
     "autocmd BufWinLeave <buffer> ++once let bnr = bufnr(fnamemodify('" +
     escapedOldPath +
-    "', ':p')) | if bnr > 0 | execute 'silent! bwipeout ' . bnr | endif";
-  const closeNewOnOldLeaveCmd =
-    "wincmd h | autocmd BufWinLeave <buffer> ++once let bnr = bufnr(fnamemodify('" +
-    escapedNewPath +
-    "', ':p')) | if bnr > 0 | execute 'silent! bwipeout ' . bnr | endif | wincmd l";
+    "', ':p')) | if bnr > 0 | execute 'silent! bwipeout! ' . bnr | endif | silent! close";
+
+  const closePairFromOldCmd = "wincmd h | wincmd l";
 
   return [
     ...diff.before,
@@ -368,9 +366,9 @@ function buildNvrPassthroughEditorArgs(editorArgs) {
     "-c",
     setupWindowsCmd,
     "-c",
-    closeOldOnNewLeaveCmd,
+    closePairFromNewCmd,
     "-c",
-    closeNewOnOldLeaveCmd,
+    closePairFromOldCmd,
     "-c",
     "stopinsert",
     "-c",
@@ -383,9 +381,8 @@ function buildNvrPassthroughEditorArgs(editorArgs) {
 }
 
 function makeNvrPassthroughArgs(targetServer, editorArgs, options = {}) {
-  const nvrEditorArgs = buildNvrPassthroughEditorArgs(editorArgs);
-  const waitArg =
-    isDiffEditorArgs(editorArgs) || options.noWait ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
+  const nvrEditorArgs = buildNvrPassthroughEditorArgs(editorArgs, options);
+  const waitArg = options.noWait ? NVR_NOWAIT_ARG : NVR_WAIT_ARG;
 
   return [
     "--nostart",
