@@ -93,7 +93,7 @@ type StatusMessage = {
 class PlanSelector implements Component {
   private closed = false;
   private viewMode: "tree" | "flat" = "flat";
-  private groupingMode: "none" | "status" | "phase" = "phase";
+  private groupingMode: "none" | "status" | "phase" = "none";
   private searchQuery: string = "";
   private searchMode = false;
   private flatItems: FlatItem[] = [];
@@ -192,7 +192,7 @@ class PlanSelector implements Component {
       return;
     }
 
-    if (kb.matches(data, "tui.select.cancel")) {
+    if (kb.matches(data, "tui.select.cancel") || matchesKey(data, "q")) {
       this.finish({ selected: null });
       return;
     }
@@ -240,29 +240,21 @@ class PlanSelector implements Component {
     const dim = (s: string) => theme.fg("dim", s);
     const accent = (s: string) => theme.fg("accent", s);
     const bold = (s: string) => theme.bold(s);
-    const border = (s: string) => theme.fg("dim", s);
 
     const lines: string[] = [];
-    const innerWidth = width - 2;
+    const innerWidth = Math.max(0, width - 2);
+
+    // Outer breathing room to separate from Pi chat/editor panels
+    lines.push("");
 
     const padLine = (content: string): string => {
       const len = visibleWidth(content);
       return ` ${content}${" ".repeat(Math.max(0, innerWidth - len))} `;
     };
 
-    // Top border with title
-    const title = " Plans ";
-    const titleLen = title.length;
-    const borderLen = Math.max(0, width - titleLen);
-    const leftBorder = Math.floor(borderLen / 2);
-    const rightBorder = borderLen - leftBorder;
-    lines.push(
-      border("─".repeat(leftBorder)) +
-        accent(bold(title)) +
-        border("─".repeat(rightBorder)),
-    );
+    lines.push(padLine(accent(bold("Plans"))));
+    lines.push(padLine(dim("")));
 
-    // Status line: view mode/search info, or status message
     if (this.statusMessage) {
       const style =
         this.statusMessage.level === "error"
@@ -276,20 +268,18 @@ class PlanSelector implements Component {
         ),
       );
     } else if (this.searchMode) {
-      // In search mode: show prompt with query
       const promptText = `/ ${this.searchQuery}${this.searchQuery.length > 0 ? "_" : ""}`;
       lines.push(padLine(accent(promptText)));
     } else {
-      // Normal mode: show view and group status
       const viewLabel = this.viewMode === "tree" ? "tree" : "flat";
       const groupLabel = this.groupingMode;
       const statusText = this.searchQuery
-        ? `View: ${viewLabel}  Group: ${groupLabel}  Search: ${this.searchQuery}`
-        : `View: ${viewLabel}  Group: ${groupLabel}`;
+        ? `view:${viewLabel}  group:${groupLabel}  search:${this.searchQuery}`
+        : `view:${viewLabel}  group:${groupLabel}`;
       lines.push(padLine(dim(truncateToWidth(statusText, innerWidth, ""))));
     }
 
-    lines.push(border("─".repeat(width)));
+    lines.push(padLine(dim("")));
 
     const visibleCount = this.visibleLines();
     const sliceStart = Math.min(
@@ -322,20 +312,31 @@ class PlanSelector implements Component {
       lines.push(padLine(""));
     }
 
-    lines.push(border("─".repeat(width)));
+    lines.push(padLine(dim("")));
     lines.push(
       padLine(
         dim(
           truncateToWidth(
-            "↑/↓ move  Enter select  Ctrl+A archive  Ctrl+T view  Ctrl+G cycle group  / search  Esc cancel",
+            "Move: ↑/↓ · Select: Enter · Cancel: q or Esc · Search: /",
             innerWidth,
             "",
           ),
         ),
       ),
     );
-    lines.push(border("─".repeat(width)));
+    lines.push(
+      padLine(
+        dim(
+          truncateToWidth(
+            "Archive: Ctrl+A · View: Ctrl+T · Group: Ctrl+G",
+            innerWidth,
+            "",
+          ),
+        ),
+      ),
+    );
 
+    lines.push("");
     return lines;
   }
 
@@ -771,7 +772,8 @@ function buildGroupedViewByPhase(viewRoots: ViewNode[]) {
   const groups = new Map<string, ViewNode[]>();
 
   for (const root of viewRoots) {
-    const phase = (root.node.plan?.phase || "unassigned").trim() || "unassigned";
+    const phase =
+      (root.node.plan?.phase || "unassigned").trim() || "unassigned";
     if (!groups.has(phase)) {
       groups.set(phase, []);
     }
@@ -993,7 +995,9 @@ function groupNodesByPhase(
   return result;
 }
 
-function parseSemanticPrefix(slug: string): { major: number; minor: number } | null {
+function parseSemanticPrefix(
+  slug: string,
+): { major: number; minor: number } | null {
   const match = slug.match(/^(\d+)-(\d+)(?:$|[-_])/);
   if (!match) return null;
 
