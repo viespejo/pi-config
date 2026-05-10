@@ -442,6 +442,7 @@ export function evaluatePermission(
       return { action: "default", reason: "No bash command segments found." };
     }
 
+    // deny: if any segment matches a deny rule, block whole command
     for (const rule of state.merged.deny) {
       const res = matchRuleAgainstSegments(rule, segments);
       if (res.matched) {
@@ -454,6 +455,7 @@ export function evaluatePermission(
       }
     }
 
+    // ask: if any segment matches an ask rule, require confirmation
     for (const rule of state.merged.ask) {
       const res = matchRuleAgainstSegments(rule, segments);
       if (res.matched) {
@@ -466,16 +468,39 @@ export function evaluatePermission(
       }
     }
 
-    for (const rule of state.merged.allow) {
-      const res = matchRuleAgainstSegments(rule, segments);
-      if (res.matched) {
+    // allow: only allow automatically if every segment is covered by allow rules
+    let firstAllowedRule: ParsedRule | undefined;
+    let firstAllowedSegment: string | undefined;
+
+    for (const segment of segments) {
+      let covered = false;
+      for (const rule of state.merged.allow) {
+        const res = matchRuleAgainstSegments(rule, [segment]);
+        if (res.matched) {
+          covered = true;
+          if (!firstAllowedRule) {
+            firstAllowedRule = rule;
+            firstAllowedSegment = res.matchedSegment;
+          }
+          break;
+        }
+      }
+
+      if (!covered) {
         return {
-          action: "allow",
-          matchedRule: rule.raw,
-          matchedSegment: res.matchedSegment,
-          reason: `Allowed by configured rule ${rule.raw}`,
+          action: "default",
+          reason: `No matching allow rule for bash segment: ${segment}`,
         };
       }
+    }
+
+    if (segments.length > 0 && firstAllowedRule) {
+      return {
+        action: "allow",
+        matchedRule: firstAllowedRule.raw,
+        matchedSegment: firstAllowedSegment,
+        reason: `Allowed by configured rule ${firstAllowedRule.raw}`,
+      };
     }
 
     return { action: "default", reason: "No matching bash rule." };
