@@ -189,6 +189,7 @@ export function createPlanRepository(
       const files = await fs.readdir(plansPath);
       const mdFiles = files
         .filter((f) => f.endsWith(".md"))
+        .filter((f) => !/-SUMMARY\.md$/i.test(f))
         .sort(comparePlanFilenamesSemantically);
 
       const plans: PlanInfo[] = [];

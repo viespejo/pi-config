@@ -242,16 +242,17 @@ class PlanSelector implements Component {
     const bold = (s: string) => theme.bold(s);
 
     const lines: string[] = [];
-    const innerWidth = Math.max(0, width - 2);
+    const innerWidth = Math.max(0, width - 4);
 
-    // Outer breathing room to separate from Pi chat/editor panels
-    lines.push("");
+    // Accent border aligned with editor/widget frame
+    lines.push(theme.fg("borderAccent", "─".repeat(Math.max(1, width))));
 
     const padLine = (content: string): string => {
       const len = visibleWidth(content);
-      return ` ${content}${" ".repeat(Math.max(0, innerWidth - len))} `;
+      return `  ${content}${" ".repeat(Math.max(0, innerWidth - len))}  `;
     };
 
+    lines.push(padLine(""));
     lines.push(padLine(accent(bold("Plans"))));
     lines.push(padLine(dim("")));
 
@@ -312,6 +313,13 @@ class PlanSelector implements Component {
       lines.push(padLine(""));
     }
 
+    if (this.selectableNodes.length > visibleCount) {
+      const hasAbove = this.scrollOffset > 0;
+      const hasBelow = this.scrollOffset + visibleCount < this.flatItems.length;
+      const selectedPosition = `(${this.selectedIndex + 1}/${this.selectableNodes.length})`;
+      const indicator = `${hasAbove ? "↑" : " "} ${selectedPosition} ${hasBelow ? "↓" : " "}`;
+      lines.push(padLine(dim(indicator)));
+    }
     lines.push(padLine(dim("")));
     lines.push(
       padLine(
@@ -335,8 +343,9 @@ class PlanSelector implements Component {
         ),
       ),
     );
+    lines.push(padLine(""));
 
-    lines.push("");
+    lines.push(theme.fg("borderAccent", "─".repeat(Math.max(1, width))));
     return lines;
   }
 
