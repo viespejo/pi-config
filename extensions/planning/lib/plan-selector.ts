@@ -58,7 +58,6 @@ interface PlanTreeNode {
   id: string;
   slug: string;
   plan?: PlanInfo;
-  missing: boolean;
   children: PlanTreeNode[];
   parents: Set<string>;
 }
@@ -93,8 +92,8 @@ type StatusMessage = {
 
 class PlanSelector implements Component {
   private closed = false;
-  private viewMode: "tree" | "flat" = "tree";
-  private groupingMode: "none" | "status" | "phase" = "none";
+  private viewMode: "tree" | "flat" = "flat";
+  private groupingMode: "none" | "status" | "phase" = "phase";
   private searchQuery: string = "";
   private searchMode = false;
   private flatItems: FlatItem[] = [];
@@ -107,14 +106,24 @@ class PlanSelector implements Component {
   private archiving = false;
   private statusMessage: StatusMessage | null = null;
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly tui: { requestRender: () => void };
+  private readonly theme: Theme;
+  private readonly keybindings: KeybindingsLike;
+  private readonly options: PlanSelectorOptions;
+  private readonly done: (result: PlanSelectorResult) => void;
 
   constructor(
-    private readonly tui: { requestRender: () => void },
-    private readonly theme: Theme,
-    private readonly keybindings: KeybindingsLike,
-    private readonly options: PlanSelectorOptions,
-    private readonly done: (result: PlanSelectorResult) => void,
+    tui: { requestRender: () => void },
+    theme: Theme,
+    keybindings: KeybindingsLike,
+    options: PlanSelectorOptions,
+    done: (result: PlanSelectorResult) => void,
   ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.options = options;
+    this.done = done;
     this.plans = [...options.plans];
     this.roots = buildPlanForest(this.plans);
     this.refreshView();
@@ -212,6 +221,7 @@ class PlanSelector implements Component {
           : this.groupingMode === "status"
             ? "phase"
             : "none";
+      this.scrollOffset = 0;
       this.refreshView();
       return;
     }
@@ -432,7 +442,6 @@ class PlanSelector implements Component {
         return this.theme.fg("dim", value);
       case "cancelled":
       case "abandoned":
-      case "missing":
         return this.theme.fg("error", value);
       default:
         return this.theme.fg("dim", value);
@@ -570,7 +579,7 @@ class PlanSelector implements Component {
     this.selectableNodes = flatItems
       .filter((item): item is FlatNodeItem => item.type === "node")
       .map((item) => item.node)
-      .filter((node) => !node.missing && node.plan !== undefined);
+      .filter((node) => node.plan !== undefined);
 
     if (this.selectedId) {
       const idx = this.selectableNodes.findIndex(
@@ -598,6 +607,7 @@ class PlanSelector implements Component {
   private ensureScrollVisible(): void {
     const visibleCount = this.visibleLines();
     const selectedFlatIndex = this.getSelectedFlatIndex();
+    const anchorFlatIndex = this.getSelectedAnchorFlatIndex();
     const maxOffset = Math.max(0, this.flatItems.length - visibleCount);
 
     if (selectedFlatIndex === -1) {
@@ -605,8 +615,8 @@ class PlanSelector implements Component {
       return;
     }
 
-    if (selectedFlatIndex < this.scrollOffset) {
-      this.scrollOffset = selectedFlatIndex;
+    if (anchorFlatIndex < this.scrollOffset) {
+      this.scrollOffset = anchorFlatIndex;
     } else if (selectedFlatIndex >= this.scrollOffset + visibleCount) {
       this.scrollOffset = selectedFlatIndex - visibleCount + 1;
     }
@@ -621,6 +631,18 @@ class PlanSelector implements Component {
     );
   }
 
+  private getSelectedAnchorFlatIndex(): number {
+    const selectedFlatIndex = this.getSelectedFlatIndex();
+    if (selectedFlatIndex <= 0) return selectedFlatIndex;
+
+    const prev = this.flatItems[selectedFlatIndex - 1];
+    if (prev?.type === "group") {
+      return selectedFlatIndex - 1;
+    }
+
+    return selectedFlatIndex;
+  }
+
   private finish(result: PlanSelectorResult): void {
     if (this.closed) return;
     this.closed = true;
@@ -630,7 +652,7 @@ class PlanSelector implements Component {
 
 // --- Tree building ---
 
-function buildPlanForest(plans: PlanInfo[]): PlanTreeNode[] {
+export function buildPlanForest(plans: PlanInfo[]): PlanTreeNode[] {
   const nodes = new Map<string, PlanTreeNode>();
 
   for (const plan of plans) {
@@ -638,50 +660,66 @@ function buildPlanForest(plans: PlanInfo[]): PlanTreeNode[] {
       id: plan.slug,
       slug: plan.slug,
       plan,
-      missing: false,
       children: [],
       parents: new Set(),
     });
   }
-
-  const getOrCreateMissing = (slug: string) => {
-    const existing = nodes.get(slug);
-    if (existing) return existing;
-    const missingNode: PlanTreeNode = {
-      id: `missing:${slug}`,
-      slug,
-      missing: true,
-      children: [],
-      parents: new Set(),
-    };
-    nodes.set(slug, missingNode);
-    return missingNode;
-  };
 
   for (const plan of plans) {
     const current = nodes.get(plan.slug);
     if (!current) continue;
 
     for (const depSlug of plan.dependencies) {
-      const parent = nodes.get(depSlug) ?? getOrCreateMissing(depSlug);
+      const parent = nodes.get(depSlug);
+      if (!parent) continue;
       parent.children.push(current);
       current.parents.add(parent.id);
     }
   }
 
-  return Array.from(nodes.values()).filter((node) => node.parents.size === 0);
+  const initialRoots = Array.from(nodes.values()).filter(
+    (node) => node.parents.size === 0,
+  );
+
+  const visited = new Set<string>();
+  const walk = (node: PlanTreeNode) => {
+    if (visited.has(node.id)) return;
+    visited.add(node.id);
+    for (const child of node.children) {
+      walk(child);
+    }
+  };
+
+  for (const root of initialRoots) {
+    walk(root);
+  }
+
+  const additionalRoots: PlanTreeNode[] = [];
+  const sortedAll = sortNodesByDate(Array.from(nodes.values()));
+  for (const node of sortedAll) {
+    if (visited.has(node.id)) continue;
+    additionalRoots.push(node);
+    walk(node);
+  }
+
+  return sortNodesByDate(initialRoots).concat(additionalRoots);
 }
 
 function buildViewForest(roots: PlanTreeNode[]): ViewNode[] {
   const sortedRoots = sortNodesByDate(roots);
-  const result: ViewNode[] = [];
 
-  for (const node of sortedRoots) {
-    const viewChildren = buildViewForest(node.children);
-    result.push({ node, children: viewChildren });
-  }
+  const buildNode = (node: PlanTreeNode, path: Set<string>): ViewNode => {
+    const nextPath = new Set(path);
+    nextPath.add(node.id);
 
-  return result;
+    const children = sortNodesByDate(node.children)
+      .filter((child) => !nextPath.has(child.id))
+      .map((child) => buildNode(child, nextPath));
+
+    return { node, children };
+  };
+
+  return sortedRoots.map((node) => buildNode(node, new Set<string>()));
 }
 
 function buildGroupedViewByStatus(viewRoots: ViewNode[]) {
@@ -702,7 +740,6 @@ function buildGroupedViewByStatus(viewRoots: ViewNode[]) {
     "completed",
     "cancelled",
     "abandoned",
-    "missing",
   ];
   const result: {
     type: "group";
@@ -867,7 +904,7 @@ function getAllNodes(roots: PlanTreeNode[]): PlanTreeNode[] {
   function walk(node: PlanTreeNode): void {
     if (seen.has(node.id)) return;
     seen.add(node.id);
-    if (!node.missing) result.push(node);
+    result.push(node);
     for (const child of node.children) {
       walk(child);
     }
@@ -901,7 +938,6 @@ function groupNodesByStatus(
     "completed",
     "cancelled",
     "abandoned",
-    "missing",
   ];
 
   const result: { header: FlatGroupItem; nodes: PlanTreeNode[] }[] = [];
