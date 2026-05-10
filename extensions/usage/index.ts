@@ -132,7 +132,8 @@ class UsagePanelComponent {
   }
 
   render(width: number): string[] {
-    return this.container.render(width);
+    const border = this.theme.fg("borderAccent", "─".repeat(Math.max(1, width)));
+    return [border, ...this.container.render(width), border];
   }
 
   invalidate() {
