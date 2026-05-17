@@ -27,6 +27,10 @@ import {
   DENY_REASON_PLACEHOLDER,
 } from "./prompt-messages.ts";
 import { reviewInNeovim, type NeovimReviewAdapters } from "./neovim-review.ts";
+import {
+  approvalSelectWithInlineNote,
+  type CustomFn,
+} from "./approval-select.ts";
 
 export type SelectFn = (
   prompt: string,
@@ -37,6 +41,10 @@ export type InputFn = (
   label: string,
   placeholder?: string,
 ) => Promise<string | undefined>;
+export type EditorFn = (
+  label: string,
+  initialText?: string,
+) => Promise<string | undefined>;
 export type NotifyFn = (
   message: string,
   level?: "info" | "warning" | "error",
@@ -45,6 +53,8 @@ export type NotifyFn = (
 export type GateUI = {
   select?: SelectFn;
   input?: InputFn;
+  editor?: EditorFn;
+  custom?: CustomFn;
   notify?: NotifyFn;
 };
 
@@ -52,11 +62,12 @@ export type GateCtx = {
   hasUI?: boolean;
   ui?: GateUI;
   cwd?: string;
+  abort?: () => void;
   neovimReviewAdapters?: NeovimReviewAdapters;
 };
 
 export type ApprovalLoopResult =
-  | { type: "choice"; choice: string | undefined }
+  | { type: "choice"; choice: string | undefined; note?: string; aborted?: boolean }
   | {
       type: "apply-reviewed";
       filePath: string;
@@ -75,11 +86,14 @@ export function hasSelectUI(ctx: GateCtx): ctx is GateCtxWithSelectUI {
 
 export async function askOptionalDenyReason(ctx: GateCtxWithSelectUI) {
   try {
+    if (typeof ctx.ui.editor === "function") {
+      return await ctx.ui.editor(DENY_REASON_LABEL, "");
+    }
     if (typeof ctx.ui.input === "function") {
       return await ctx.ui.input(DENY_REASON_LABEL, DENY_REASON_PLACEHOLDER);
     }
   } catch {
-    // ignore input errors
+    // ignore input/editor errors
   }
 
   return undefined;
@@ -185,7 +199,11 @@ export async function runEditApprovalLoop(
 
   let promptMsg = initialPromptMsg;
   while (true) {
-    const choice = await ctx.ui.select(promptMsg, editOptions);
+    const { choice, note, aborted } = await approvalSelectWithInlineNote(
+      ctx.ui,
+      promptMsg,
+      editOptions,
+    );
     if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
       if (!path || !edits) {
         promptMsg = previewUnavailablePrompt(
@@ -236,7 +254,9 @@ export async function runEditApprovalLoop(
       }
     }
 
-    if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
+    if (choice !== APPROVAL_OPTION_VIEW_DIFF) {
+      return { type: "choice", choice, note, aborted };
+    }
 
     if (!path || !edits) {
       promptMsg = previewUnavailablePrompt("edit", "missing path/edits input.");
@@ -281,7 +301,11 @@ export async function runWriteApprovalLoop(
 
   let promptMsg = initialPromptMsg;
   while (true) {
-    const choice = await ctx.ui.select(promptMsg, writeOptions);
+    const { choice, note, aborted } = await approvalSelectWithInlineNote(
+      ctx.ui,
+      promptMsg,
+      writeOptions,
+    );
     if (choice === APPROVAL_OPTION_REVIEW_NVIM) {
       if (!path || typeof content !== "string") {
         const reason = !path ? "missing path input" : "missing content input";
@@ -324,7 +348,9 @@ export async function runWriteApprovalLoop(
       promptMsg = initialPromptMsg;
       continue;
     }
-    if (choice !== APPROVAL_OPTION_VIEW_DIFF) return { type: "choice", choice };
+    if (choice !== APPROVAL_OPTION_VIEW_DIFF) {
+      return { type: "choice", choice, note, aborted };
+    }
 
     if (!path || typeof content !== "string") {
       const reason = !path ? "missing path input" : "missing content input";

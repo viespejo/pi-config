@@ -45,6 +45,7 @@ import { assessReadRequest } from "./read-policy.ts";
 import { classifyBashRisk } from "./bash-risk.ts";
 import { registerPgateCommand } from "./pgate-command.ts";
 import { showBashDetailsInCustomDialog } from "./command-viewer.ts";
+import { approvalSelectWithInlineNote } from "./approval-select.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -57,6 +58,24 @@ function blockedByUserReason(userReason?: string) {
   return userReason
     ? `Blocked by user. Reason: ${userReason}`
     : "Blocked by user";
+}
+
+function sendApprovalNote(pi: ExtensionAPI, tool: string, note?: string) {
+  const trimmed = note?.trim();
+  if (!trimmed) return;
+  pi.sendUserMessage(`Approval note for ${tool}: ${trimmed}`, {
+    deliverAs: "steer",
+  });
+}
+
+async function reasonForExplicitBlock(
+  choice: string | undefined,
+  note: string | undefined,
+  gateCtx: GateCtx & { ui: NonNullable<GateCtx["ui"]> },
+) {
+  if (note) return note;
+  if (choice) return undefined;
+  return await askOptionalDenyReason(gateCtx as any);
 }
 
 function getPromptDisplayWidth() {
@@ -174,14 +193,21 @@ export default function (pi: ExtensionAPI) {
         }
 
         let choice: string | undefined;
+        let approvalNote: string | undefined;
+        let approvalAborted = false;
         try {
-          choice = await gateCtx.ui.select(
+          const result = await approvalSelectWithInlineNote(
+            gateCtx.ui,
             readApprovalPrompt(
               readRisk.pathLabel,
               mergeAndDedupeRisks(askReasons, []),
             ),
             [APPROVAL_OPTION_READ_ONCE, APPROVAL_OPTION_BLOCK],
+            { editableChoices: [APPROVAL_OPTION_BLOCK] },
           );
+          choice = result.choice;
+          approvalNote = result.note;
+          approvalAborted = Boolean(result.aborted);
         } catch (err) {
           return {
             block: true,
@@ -189,8 +215,17 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
+        if (approvalAborted) {
+          gateCtx.abort?.();
+          return;
+        }
+
         if (choice !== APPROVAL_OPTION_READ_ONCE) {
-          const userReason = await askOptionalDenyReason(gateCtx);
+          const userReason = await reasonForExplicitBlock(
+            choice,
+            approvalNote,
+            gateCtx,
+          );
           return {
             block: true,
             reason: blockedByUserReason(userReason),
@@ -290,6 +325,8 @@ export default function (pi: ExtensionAPI) {
         | undefined;
 
       let bashChoice: string | undefined;
+      let bashApprovalNote: string | undefined;
+      let bashApprovalAborted = false;
       while (true) {
         try {
           const promptDisplayWidth = getPromptDisplayWidth();
@@ -310,12 +347,25 @@ export default function (pi: ExtensionAPI) {
             ? [...BASH_HIGH_RISK_APPROVAL_OPTIONS]
             : [...BASH_SIMPLE_APPROVAL_OPTIONS];
 
-          bashChoice = await gateCtx.ui.select(prompt, options);
+          const result = await approvalSelectWithInlineNote(
+            gateCtx.ui,
+            prompt,
+            options,
+            { editableChoices: [APPROVAL_OPTION_BLOCK] },
+          );
+          bashChoice = result.choice;
+          bashApprovalNote = result.note;
+          bashApprovalAborted = Boolean(result.aborted);
         } catch (err) {
           return {
             block: true,
             reason: `Blocked: ui.select failed (${String(err)})`,
           };
+        }
+
+        if (bashApprovalAborted) {
+          gateCtx.abort?.();
+          return;
         }
 
         if (
@@ -386,7 +436,11 @@ export default function (pi: ExtensionAPI) {
 
       if (requiresHighRiskConfirmation) {
         if (bashChoice !== APPROVAL_OPTION_RUN_HIGH_RISK_ONCE) {
-          const userReason = await askOptionalDenyReason(gateCtx);
+          const userReason = await reasonForExplicitBlock(
+            bashChoice,
+            bashApprovalNote,
+            gateCtx,
+          );
           return { block: true, reason: blockedByUserReason(userReason) };
         }
 
@@ -415,7 +469,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (bashChoice !== APPROVAL_OPTION_RUN_ONCE) {
-        const userReason = await askOptionalDenyReason(gateCtx);
+        const userReason = await reasonForExplicitBlock(
+          bashChoice,
+          bashApprovalNote,
+          gateCtx,
+        );
         return {
           block: true,
           reason: blockedByUserReason(userReason),
@@ -435,6 +493,8 @@ export default function (pi: ExtensionAPI) {
 
     // Use a select so the user can allow permanently for this session (not available for bash)
     let choice: string | undefined;
+    let approvalNote: string | undefined;
+    let approvalAborted = false;
     try {
       const defaultOptions = defaultOptionsForTool(tool);
 
@@ -465,8 +525,12 @@ export default function (pi: ExtensionAPI) {
             pi,
           });
           if (applied) return applied;
+        } else if (editResult.aborted) {
+          gateCtx.abort?.();
+          return;
         } else {
           choice = editResult.choice;
+          approvalNote = editResult.note;
         }
       } else if (tool === "write") {
         const writeResult = await runWriteApprovalLoop(
@@ -487,11 +551,22 @@ export default function (pi: ExtensionAPI) {
             pi,
           });
           if (applied) return applied;
+        } else if (writeResult.aborted) {
+          gateCtx.abort?.();
+          return;
         } else {
           choice = writeResult.choice;
+          approvalNote = writeResult.note;
         }
       } else {
-        choice = await gateCtx.ui.select(promptMsg, defaultOptions);
+        const result = await approvalSelectWithInlineNote(
+          gateCtx.ui,
+          promptMsg,
+          defaultOptions,
+        );
+        choice = result.choice;
+        approvalNote = result.note;
+        approvalAborted = Boolean(result.aborted);
       }
     } catch (err) {
       // If UI threw for some reason, be conservative and block
@@ -499,6 +574,11 @@ export default function (pi: ExtensionAPI) {
         block: true,
         reason: `Blocked: ui.select failed (${String(err)})`,
       };
+    }
+
+    if (approvalAborted) {
+      gateCtx.abort?.();
+      return;
     }
 
     if (choice === APPROVAL_OPTION_YES_SESSION) {
@@ -509,13 +589,18 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (choice !== APPROVAL_OPTION_YES) {
-      const userReason = await askOptionalDenyReason(gateCtx);
+      const userReason = await reasonForExplicitBlock(
+        choice,
+        approvalNote,
+        gateCtx,
+      );
       return {
         block: true,
         reason: blockedByUserReason(userReason),
       };
     }
 
+    sendApprovalNote(pi, tool, approvalNote);
     // If choice === "Yes" we simply allow the call by returning nothing
   });
 }

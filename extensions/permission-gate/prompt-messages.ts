@@ -25,7 +25,8 @@ export const DIFF_APPROVAL_OPTIONS = [
   APPROVAL_OPTION_NO,
 ] as const;
 
-export const DENY_REASON_LABEL = "Why was this denied? (optional)";
+export const DENY_REASON_LABEL =
+  "Why was this denied? (optional)\nShift+Enter for newline, Ctrl+G for external editor.";
 export const DENY_REASON_PLACEHOLDER = "Reason for the LLM";
 
 export function allowExecutionPrompt(tool: string, target?: string) {
