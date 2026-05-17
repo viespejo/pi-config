@@ -368,6 +368,7 @@ describe("permission-gate tool_call", () => {
       assert.deepEqual(ui.selectCalls[0]!.options, [
         "Run once",
         "Explain command",
+        "View details",
         "Block",
       ]);
     } finally {
@@ -447,6 +448,7 @@ describe("permission-gate tool_call", () => {
     assert.deepEqual(ui.selectCalls[0]!.options, [
       "Run high-risk once",
       "Explain command",
+      "View details",
       "Block",
     ]);
     assert.equal(ui.inputCalls.length, 1);

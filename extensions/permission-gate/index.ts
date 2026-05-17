@@ -25,6 +25,7 @@ import {
   readApprovalPrompt,
   APPROVAL_OPTION_BLOCK,
   APPROVAL_OPTION_EXPLAIN_COMMAND,
+  APPROVAL_OPTION_VIEW_DETAILS,
   APPROVAL_OPTION_READ_ONCE,
   APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
   APPROVAL_OPTION_RUN_ONCE,
@@ -43,6 +44,7 @@ import { generateBashExplanation } from "./bash-explain.ts";
 import { assessReadRequest } from "./read-policy.ts";
 import { classifyBashRisk } from "./bash-risk.ts";
 import { registerPgateCommand } from "./pgate-command.ts";
+import { showBashDetailsInCustomDialog } from "./command-viewer.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
 export type { WritePreviewResult } from "./write-preview.ts";
@@ -55,6 +57,20 @@ function blockedByUserReason(userReason?: string) {
   return userReason
     ? `Blocked by user. Reason: ${userReason}`
     : "Blocked by user";
+}
+
+function getPromptDisplayWidth() {
+  const stdoutColumns = process.stdout?.columns;
+  if (typeof stdoutColumns === "number" && stdoutColumns > 0) {
+    return stdoutColumns;
+  }
+
+  const stderrColumns = process.stderr?.columns;
+  if (typeof stderrColumns === "number" && stderrColumns > 0) {
+    return stderrColumns;
+  }
+
+  return undefined;
 }
 
 function mergeAndDedupeRisks(primary: string[], secondary: string[]) {
@@ -276,9 +292,20 @@ export default function (pi: ExtensionAPI) {
       let bashChoice: string | undefined;
       while (true) {
         try {
+          const promptDisplayWidth = getPromptDisplayWidth();
           const prompt = requiresHighRiskConfirmation
-            ? bashHighRiskPrompt(command, policyAndRiskReasons, lastExplanation)
-            : bashSimplePrompt(command, configured.reason, lastExplanation);
+            ? bashHighRiskPrompt(
+                command,
+                policyAndRiskReasons,
+                lastExplanation,
+                promptDisplayWidth,
+              )
+            : bashSimplePrompt(
+                command,
+                configured.reason,
+                lastExplanation,
+                promptDisplayWidth,
+              );
           const options = requiresHighRiskConfirmation
             ? [...BASH_HIGH_RISK_APPROVAL_OPTIONS]
             : [...BASH_SIMPLE_APPROVAL_OPTIONS];
@@ -291,8 +318,21 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        if (bashChoice !== APPROVAL_OPTION_EXPLAIN_COMMAND) {
+        if (
+          bashChoice !== APPROVAL_OPTION_EXPLAIN_COMMAND &&
+          bashChoice !== APPROVAL_OPTION_VIEW_DETAILS
+        ) {
           break;
+        }
+
+        if (bashChoice === APPROVAL_OPTION_VIEW_DETAILS) {
+          await showBashDetailsInCustomDialog(gateCtx, {
+            command,
+            policyReason: configured.reason,
+            highRiskReasons: policyAndRiskReasons,
+            explanation: lastExplanation,
+          });
+          continue;
         }
 
         if (

@@ -68,8 +68,9 @@ export async function showDiffInCustomDialog(
       }
 
       const padRightVisible = (s: string, target: number) => {
-        const len = visibleWidth(s);
-        return len >= target ? s : `${s}${" ".repeat(target - len)}`;
+        const safe = truncateToWidth(s, target);
+        const len = visibleWidth(safe);
+        return len >= target ? safe : `${safe}${" ".repeat(target - len)}`;
       };
 
       // Keep viewport height stable while the dialog is open. In some setups,
