@@ -3,7 +3,7 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
-  visibleWidth,
+  wrapTextWithAnsi,
   type Component,
   type Focusable,
 } from "@earendil-works/pi-tui";
@@ -37,6 +37,7 @@ export type ApprovalSelectResult = {
 
 export type ApprovalSelectOptions = {
   editableChoices?: readonly string[];
+  requireCustom?: boolean;
 };
 
 type ThemeLike = Parameters<CustomFn>[0] extends (
@@ -50,6 +51,7 @@ type ThemeLike = Parameters<CustomFn>[0] extends (
 
 const DEFAULT_EDITABLE_CHOICES = ["Yes", "No", "Block"] as const;
 const INLINE_NOTE_PREVIEW_LIMIT = 80;
+const PROMPT_VIEWPORT_LINES = 18;
 
 function isEditableChoice(choice: string, editableChoices: readonly string[]) {
   return editableChoices.includes(choice);
@@ -77,6 +79,7 @@ class ApprovalSelectWithInlineNote implements Component, Focusable {
   private editChoice: string | undefined;
   private note = "";
   private cursor = 0;
+  private promptScroll = 0;
   private readonly params: ApprovalSelectWithInlineNoteParams;
 
   constructor(params: ApprovalSelectWithInlineNoteParams) {
@@ -94,6 +97,17 @@ class ApprovalSelectWithInlineNote implements Component, Focusable {
   handleInput(data: string): void {
     if (this.editing) {
       this.handleEditingInput(data);
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("u"))) {
+      this.promptScroll = Math.max(0, this.promptScroll - Math.floor(PROMPT_VIEWPORT_LINES / 2));
+      this.requestRender();
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("d"))) {
+      this.promptScroll += Math.floor(PROMPT_VIEWPORT_LINES / 2);
+      this.requestRender();
       return;
     }
 
@@ -194,7 +208,34 @@ class ApprovalSelectWithInlineNote implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    const lines = this.params.prompt.split("\n").flatMap((line) => this.wrap(line, width));
+    const promptLines = this.params.prompt
+      .split("\n")
+      .flatMap((line) => wrapTextWithAnsi(line, width));
+
+    const lines: string[] = [];
+    const maxPromptScroll = Math.max(0, promptLines.length - PROMPT_VIEWPORT_LINES);
+    this.promptScroll = Math.max(0, Math.min(this.promptScroll, maxPromptScroll));
+
+    const promptEnd = Math.min(
+      promptLines.length,
+      this.promptScroll + PROMPT_VIEWPORT_LINES,
+    );
+    for (let index = this.promptScroll; index < promptEnd; index++) {
+      lines.push(promptLines[index]!);
+    }
+
+    if (promptLines.length > PROMPT_VIEWPORT_LINES) {
+      const percent =
+        maxPromptScroll === 0
+          ? 100
+          : Math.round((this.promptScroll / maxPromptScroll) * 100);
+      lines.push(
+        this.dim(
+          `Prompt lines ${this.promptScroll + 1}-${promptEnd} / ${promptLines.length} (${percent}%) • Ctrl+u/Ctrl+d scroll`,
+        ),
+      );
+    }
+
     if (lines.length > 0) lines.push("");
 
     for (let index = 0; index < this.params.options.length; index++) {
@@ -202,11 +243,12 @@ class ApprovalSelectWithInlineNote implements Component, Focusable {
     }
 
     lines.push("");
-    lines.push(this.dim(this.editing
+    const help = this.dim(this.editing
       ? this.noteNeedsEditorHint()
         ? "long note • Ctrl+E editor • Enter confirm • Esc back"
         : "type note • Enter confirm • Ctrl+E editor • Esc back"
-      : `↑↓/j/k navigate • Enter select • Tab note on ${this.params.editableChoices.join("/")} • Ctrl+C abort`));
+      : `↑↓/j/k navigate • Enter select • Tab note on ${this.params.editableChoices.join("/")} • Ctrl+C abort`);
+    lines.push(truncateToWidth(help, width));
 
     return lines.map((line) => truncateToWidth(line, width));
   }
@@ -265,17 +307,6 @@ class ApprovalSelectWithInlineNote implements Component, Focusable {
     return this.params.theme.fg?.("dim", text) ?? text;
   }
 
-  private wrap(line: string, width: number) {
-    if (visibleWidth(line) <= width) return [line];
-    const out: string[] = [];
-    let rest = line;
-    while (visibleWidth(rest) > width) {
-      out.push(truncateToWidth(rest, width));
-      rest = rest.slice(Math.max(1, width));
-    }
-    if (rest) out.push(rest);
-    return out;
-  }
 }
 
 export async function approvalSelectWithInlineNote(
@@ -285,6 +316,9 @@ export async function approvalSelectWithInlineNote(
   selectOptions: ApprovalSelectOptions = {},
 ): Promise<ApprovalSelectResult> {
   if (typeof ui.custom !== "function") {
+    if (selectOptions.requireCustom) {
+      return { choice: undefined, aborted: true };
+    }
     return { choice: await ui.select(prompt, options) };
   }
 
@@ -308,6 +342,9 @@ export async function approvalSelectWithInlineNote(
     });
 
     if (!result || typeof result !== "object") {
+      if (selectOptions.requireCustom) {
+        return { choice: undefined, aborted: true };
+      }
       return { choice: await ui.select(prompt, options) };
     }
 

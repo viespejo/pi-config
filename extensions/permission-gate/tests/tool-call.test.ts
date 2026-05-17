@@ -111,9 +111,35 @@ function makeUI(params: {
         inputCalls.push({ label, placeholder });
         return inputAnswers.shift() ?? "";
       },
-      async custom() {
+      async custom(factory: any) {
         customCalls++;
         if (throwOnCustom) throw new Error("custom failed");
+
+        let result: any;
+        const component = await factory(
+          { requestRender() {} },
+          {
+            fg: (_color: string, text: string) => text,
+            bg: (_color: string, text: string) => text,
+            bold: (text: string) => text,
+          },
+          {},
+          (value: any) => {
+            result = value;
+          },
+        );
+
+        if (component && typeof component.render === "function") {
+          prompts.push(component.render(120).join("\n"));
+        }
+
+        const params = component?.params;
+        if (params?.prompt && Array.isArray(params.options)) {
+          selectCalls.push({ prompt: params.prompt, options: params.options });
+          return result ?? { choice: selectAnswers.shift() ?? "No" };
+        }
+
+        return result;
       },
       notify(message: string, level?: "info" | "warning" | "error") {
         notifyCalls++;
@@ -368,7 +394,6 @@ describe("permission-gate tool_call", () => {
       assert.deepEqual(ui.selectCalls[0]!.options, [
         "Run once",
         "Explain command",
-        "View details",
         "Block",
       ]);
     } finally {
@@ -448,7 +473,6 @@ describe("permission-gate tool_call", () => {
     assert.deepEqual(ui.selectCalls[0]!.options, [
       "Run high-risk once",
       "Explain command",
-      "View details",
       "Block",
     ]);
     assert.equal(ui.inputCalls.length, 1);

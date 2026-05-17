@@ -25,7 +25,6 @@ import {
   readApprovalPrompt,
   APPROVAL_OPTION_BLOCK,
   APPROVAL_OPTION_EXPLAIN_COMMAND,
-  APPROVAL_OPTION_VIEW_DETAILS,
   APPROVAL_OPTION_READ_ONCE,
   APPROVAL_OPTION_RUN_HIGH_RISK_ONCE,
   APPROVAL_OPTION_RUN_ONCE,
@@ -44,7 +43,6 @@ import { generateBashExplanation } from "./bash-explain.ts";
 import { assessReadRequest } from "./read-policy.ts";
 import { classifyBashRisk } from "./bash-risk.ts";
 import { registerPgateCommand } from "./pgate-command.ts";
-import { showBashDetailsInCustomDialog } from "./command-viewer.ts";
 import { approvalSelectWithInlineNote } from "./approval-select.ts";
 
 export { computeWriteDiffPreviewLocal, summarizeWriteForPrompt };
@@ -76,20 +74,6 @@ async function reasonForExplicitBlock(
   if (note) return note;
   if (choice) return undefined;
   return await askOptionalDenyReason(gateCtx as any);
-}
-
-function getPromptDisplayWidth() {
-  const stdoutColumns = process.stdout?.columns;
-  if (typeof stdoutColumns === "number" && stdoutColumns > 0) {
-    return stdoutColumns;
-  }
-
-  const stderrColumns = process.stderr?.columns;
-  if (typeof stderrColumns === "number" && stderrColumns > 0) {
-    return stderrColumns;
-  }
-
-  return undefined;
 }
 
 function mergeAndDedupeRisks(primary: string[], secondary: string[]) {
@@ -211,7 +195,7 @@ export default function (pi: ExtensionAPI) {
         } catch (err) {
           return {
             block: true,
-            reason: `Blocked: ui.select failed (${String(err)})`,
+            reason: `Blocked: approval UI failed (${String(err)})`,
           };
         }
 
@@ -324,25 +308,21 @@ export default function (pi: ExtensionAPI) {
           }
         | undefined;
 
+      if (typeof gateCtx.ui.custom !== "function") {
+        return {
+          block: true,
+          reason: "Blocked: custom approval UI unavailable for bash.",
+        };
+      }
+
       let bashChoice: string | undefined;
       let bashApprovalNote: string | undefined;
       let bashApprovalAborted = false;
       while (true) {
         try {
-          const promptDisplayWidth = getPromptDisplayWidth();
           const prompt = requiresHighRiskConfirmation
-            ? bashHighRiskPrompt(
-                command,
-                policyAndRiskReasons,
-                lastExplanation,
-                promptDisplayWidth,
-              )
-            : bashSimplePrompt(
-                command,
-                configured.reason,
-                lastExplanation,
-                promptDisplayWidth,
-              );
+            ? bashHighRiskPrompt(command, policyAndRiskReasons, lastExplanation)
+            : bashSimplePrompt(command, configured.reason, lastExplanation);
           const options = requiresHighRiskConfirmation
             ? [...BASH_HIGH_RISK_APPROVAL_OPTIONS]
             : [...BASH_SIMPLE_APPROVAL_OPTIONS];
@@ -351,7 +331,10 @@ export default function (pi: ExtensionAPI) {
             gateCtx.ui,
             prompt,
             options,
-            { editableChoices: [APPROVAL_OPTION_BLOCK] },
+            {
+              editableChoices: [APPROVAL_OPTION_BLOCK],
+              requireCustom: true,
+            },
           );
           bashChoice = result.choice;
           bashApprovalNote = result.note;
@@ -359,7 +342,7 @@ export default function (pi: ExtensionAPI) {
         } catch (err) {
           return {
             block: true,
-            reason: `Blocked: ui.select failed (${String(err)})`,
+            reason: `Blocked: custom bash approval UI failed (${String(err)})`,
           };
         }
 
@@ -368,21 +351,8 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        if (
-          bashChoice !== APPROVAL_OPTION_EXPLAIN_COMMAND &&
-          bashChoice !== APPROVAL_OPTION_VIEW_DETAILS
-        ) {
+        if (bashChoice !== APPROVAL_OPTION_EXPLAIN_COMMAND) {
           break;
-        }
-
-        if (bashChoice === APPROVAL_OPTION_VIEW_DETAILS) {
-          await showBashDetailsInCustomDialog(gateCtx, {
-            command,
-            policyReason: configured.reason,
-            highRiskReasons: policyAndRiskReasons,
-            explanation: lastExplanation,
-          });
-          continue;
         }
 
         if (
@@ -572,7 +542,7 @@ export default function (pi: ExtensionAPI) {
       // If UI threw for some reason, be conservative and block
       return {
         block: true,
-        reason: `Blocked: ui.select failed (${String(err)})`,
+        reason: `Blocked: approval UI failed (${String(err)})`,
       };
     }
 
