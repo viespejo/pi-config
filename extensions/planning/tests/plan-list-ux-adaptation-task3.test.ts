@@ -18,8 +18,9 @@ function mkPlan(slug: string, status: PlanStatus, title: string): PlanInfo {
   };
 }
 
-test("default selector render keeps terminal statuses visible", async () => {
+test("default selector render keeps paused and legacy terminal statuses visible", async () => {
   const plans: PlanInfo[] = [
+    mkPlan("01-00", "paused", "Paused plan"),
     mkPlan("01-01", "completed", "Completed plan"),
     mkPlan("01-02", "cancelled", "Cancelled plan"),
     mkPlan("01-03", "abandoned", "Abandoned plan"),
@@ -48,9 +49,11 @@ test("default selector render keeps terminal statuses visible", async () => {
 
   await selectPlan(ctx, plans);
 
+  assert.match(rendered, /Paused plan/);
   assert.match(rendered, /Completed plan/);
   assert.match(rendered, /Cancelled plan/);
   assert.match(rendered, /Abandoned plan/);
+  assert.match(rendered, /paused/);
   assert.match(rendered, /completed/);
   assert.match(rendered, /cancelled/);
   assert.match(rendered, /abandoned/);

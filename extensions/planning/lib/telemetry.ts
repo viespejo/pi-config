@@ -7,11 +7,7 @@ import * as path from "node:path";
 
 export interface PlanTelemetryEvent {
   timestamp: string;
-  action:
-    | "status_transition"
-    | "assignment_set"
-    | "assignment_cleared"
-    | "execute_started";
+  action: "status_transition" | "execute_started";
   planPath: string;
   planSlug: string;
   from?: string;

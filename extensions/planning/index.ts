@@ -11,9 +11,23 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setupPlanningCommands } from "./commands";
-import { setupPlanningHooks } from "./hooks";
+import {
+  deactivatePlanLogTool,
+} from "./lib/plan-execution-runtime";
+import { setupPlanLogTaskTerminalTool } from "./lib/tools/plan-log-task-terminal-tool";
+// import { setupPlanningHooks } from "./hooks";
 
 export default function (pi: ExtensionAPI) {
+  setupPlanLogTaskTerminalTool(pi);
   setupPlanningCommands(pi);
-  setupPlanningHooks(pi);
+
+  pi.on("session_start", async () => {
+    deactivatePlanLogTool(pi);
+  });
+
+  pi.on("session_before_switch", async () => {
+    deactivatePlanLogTool(pi);
+  });
+
+  // setupPlanningHooks(pi);
 }

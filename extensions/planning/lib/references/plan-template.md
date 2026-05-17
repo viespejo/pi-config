@@ -16,6 +16,7 @@ plan: "NN"
 date: "YYYY-MM-DD"
 status: "pending"
 type: "execute" # execute | tdd | research
+files_modified: [] # Files this plan modifies.
 dependencies: [] # plan slugs, e.g. ["01-02-strict-planning-ux"]
 ---
 
@@ -166,27 +167,27 @@ Before declaring plan complete:
 - All verification checks pass
 - No errors or warnings introduced
 - [Plan-specific criteria]
-</success_criteria>
+  </success_criteria>
 
 <output>
 After completion, create `.agents/plans/{PhaseNN}-{PlanNN}-{slug}-SUMMARY.md`
 </output>
-
 ````
 
 ---
 
 ## Frontmatter Fields
 
-| Field          | Required | Purpose                                                                   |
-| -------------- | -------- | ------------------------------------------------------------------------- |
-| `title`        | Yes      | Human-readable plan title                                                 |
-| `phase`        | Yes      | Phase identifier (e.g., `01-strict-planning`)                             |
-| `plan`         | Yes      | Plan number within phase (e.g., `01`, `02`)                               |
-| `date`         | Yes      | Plan creation date in ISO format (`YYYY-MM-DD`)                           |
-| `status`       | Yes      | Initial status for new plans (`pending`)                                  |
-| `type`         | Yes      | `execute` for standard, `tdd` for test-driven, `research` for exploration |
-| `dependencies` | Yes      | Array of dependency plan slugs required by this plan                      |
+| Field            | Required | Purpose                                                                   |
+| ---------------- | -------- | ------------------------------------------------------------------------- |
+| `title`          | Yes      | Human-readable plan title                                                 |
+| `phase`          | Yes      | Phase identifier (e.g., `01-strict-planning`)                             |
+| `plan`           | Yes      | Plan number within phase (e.g., `01`, `02`)                               |
+| `date`           | Yes      | Plan creation date in ISO format (`YYYY-MM-DD`)                           |
+| `status`         | Yes      | Initial status for new plans (`pending`)                                  |
+| `type`           | Yes      | `execute` for standard, `tdd` for test-driven, `research` for exploration |
+| `files_modified` | Yes      | Files this plan touches. For conflict detection.                          |
+| `dependencies`   | Yes      | Array of dependency plan slugs required by this plan                      |
 
 ---
 

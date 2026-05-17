@@ -7,15 +7,21 @@ export type PlanErrorCode =
   | "INVALID_STATUS_TRANSITION"
   | "DEPENDENCIES_NOT_SATISFIED"
   | "INVALID_FRONTMATTER"
-  | "PLAN_ASSIGNED_TO_OTHER_SESSION";
+  | "INVALID_EXECUTION_LOG";
 
 export class PlanError extends Error {
+  public readonly code: PlanErrorCode;
+
+  public readonly details?: Record<string, unknown>;
+
   constructor(
-    public readonly code: PlanErrorCode,
+    code: PlanErrorCode,
     message: string,
-    public readonly details?: Record<string, unknown>,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "PlanError";
+    this.code = code;
+    this.details = details;
   }
 }

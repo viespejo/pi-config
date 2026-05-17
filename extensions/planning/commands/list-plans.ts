@@ -23,6 +23,7 @@ import { createPlanService } from "../lib/plan-service";
 import type { ArchiveResult } from "../lib/plan-selector";
 import { selectPlan } from "../lib/plan-selector";
 import type { PlanInfo } from "../lib/types";
+import { buildStrictApplyExecutePrompt } from "../lib/prompts/execute-plan-prompt";
 
 /**
  * Archive a plan by moving it to the configured archive directory.
@@ -175,7 +176,8 @@ export function setupListPlansCommand(pi: ExtensionAPI) {
       }
 
       if (choice === "Execute") {
-        await executePlanFlow(plan, plans, planService, ctx, pi);
+        const executePrompt = buildStrictApplyExecutePrompt();
+        await executePlanFlow(plan, plans, planService, ctx, pi, executePrompt);
       } else {
         await editPlan(plan.path, planTitle, ctx);
       }

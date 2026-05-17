@@ -5,10 +5,12 @@
 import type { PlanStatus } from "./types";
 import { PlanError } from "./errors";
 
+// TODO(final-status-migration): remove legacy "cancelled" and "abandoned" from accepted statuses.
 const PLAN_STATUS_SET = new Set<PlanStatus>([
   "draft",
   "pending",
   "in-progress",
+  "paused",
   "completed",
   "cancelled",
   "abandoned",
@@ -25,7 +27,6 @@ export interface ValidatedPlanFrontmatter {
   status: PlanStatus;
   dependencies: string[];
   dependents: string[];
-  assignedSession?: string;
 }
 
 interface ValidationContext {
@@ -122,7 +123,8 @@ export function validatePlanFrontmatter(
 
   const dependencies = asStringArray(record.dependencies, "dependencies");
   const dependents = asStringArray(record.dependents, "dependents");
-  const assignedSession = asOptionalString(record.assigned_session);
+  // Legacy compatibility: tolerate and silently ignore assigned_session.
+  asOptionalString(record.assigned_session);
 
   return {
     date,
@@ -133,6 +135,5 @@ export function validatePlanFrontmatter(
     status,
     dependencies,
     dependents,
-    assignedSession,
   };
 }

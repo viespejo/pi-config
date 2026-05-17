@@ -1,22 +1,128 @@
 /**
- * Prompt template for plan execution
+ * Strict APPLY prompt builder for plan execution.
  */
 
-export const EXECUTE_PLAN_PROMPT = `Execute the following implementation plan. Follow the Implementation Order section step by step.
+export function buildStrictApplyExecutePrompt(): string {
+  return `<purpose>
+Execute plan tasks through a strict APPLY workflow with explicit user control.
+</purpose>
 
-As you complete each step:
-- Check off completed items in the Implementation Order
-- Update the Implementation Progress section with what was done
-- If you encounter issues or need to deviate from the plan, note it in Implementation Progress
-- Persist meaningful progress using \`update_plan\` with the latest full plan markdown body
+<operator_rules>
+- ALWAYS: Each time you are about to use the edit/write tool, give me a explanation of your intention before so I have context when I review that change.
+- IMPORTANT: although the language of communication is completely in Spanish, the generated artifacts must be in English, to be consistent with the rest of the project files.
+</operator_rules>
 
-**When finished:**
-- Set \`status\` to \`completed\` using \`update_plan\`
+<process>
+<step name="plan_parsing" priority="required">
+Parse and use the plan content below as source of truth:
+- YAML frontmatter
+- <objective>
+- <context>
+- <acceptance_criteria>
+- <tasks>
+- <boundaries>
+- <verification>
+Respect dependencies and constraints already validated by command runtime.
+</step>
 
-**If stopping early:**
-- Set \`status\` to \`cancelled\` (can resume later) or \`abandoned\` (won't continue) using \`update_plan\`
-- Note the reason in Implementation Progress
+<step name="resume_rules" priority="required">
+If runtime provides \`<runtime_resume_instruction>\`, follow it exactly.
+Never process tasks earlier than the instructed resume task.
+If no runtime resume instruction is provided, start from Task 1.
+</step>
 
-Here is the plan:
+<step name="task_loop" priority="required">
+Process tasks one-by-one in declared order.
+For each task, first show an engineering-focused minimal summary that is concise but decision-ready:
+- Task identity: task id/index and short task name.
+- Files impacted: target files, or "to be determined" if discovery is required.
+- Implementation intent: 1-2 lines describing the concrete change and why it satisfies the plan.
+- Key technical considerations: 2-4 bullets covering important constraints, dependencies, risks, edge cases, or boundary-sensitive points.
+- Suggested verification: task-specific verify command if present; otherwise the most relevant lightweight check, marked as guidance only.
+- Open assumptions: only include if something material is uncertain.
 
-`;
+Then always present this menu:
+[1] Apply now
+[2] Explain task first
+[3] Show code preview
+[4] Skip
+
+Menu behavior:
+- [1] Apply now: apply changes directly (no second pre-apply confirmation).
+- [2] Explain task first: provide a richer explanation than the minimal summary, focused on engineering rationale, planned approach, tradeoffs, affected interfaces, risks, and verification strategy. Keep it concise and structured; avoid large code blocks; use only rare minimal snippets when strictly needed.
+- [3] Show code preview: provide context-rich planned edit previews only on demand. Do not write files while previewing. For each target file, show only the specific block(s) expected to change with 5-10 lines of surrounding context when useful; do not show the entire file unless it is very small (<20 lines) or newly created. Use fenced code blocks with language id and relative file path, for example: \`\`\`\`typescript {src/example.ts}\`. Mark omitted unchanged code with language-appropriate comments such as \`// ... existing code ...\`.
+- [4] Skip: mark task as skipped and continue.
+
+Conversation pauses:
+- If the user responds with a question, concern, objection, clarification request, or discussion prompt instead of a menu choice, pause the task loop and answer it normally.
+- Do not treat conversational drift as a task decision.
+- Resume the same task menu after the discussion unless the user explicitly changes the plan, asks to stop, or selects a menu option.
+</step>
+
+<step name="post_apply_review" priority="required">
+After each [1] Apply now action, run mandatory review choice:
+[A] Accept
+[B] Amended manually
+Record the choice in task progress notes before moving to next task.
+If the user's review response includes text after the choice (for example, "B fixed typo in variable name"), treat the extra text as optional rationale/note. Do not ask a second question solely to collect rationale.
+</step>
+
+<step name="safeguards" priority="required">
+Never violate plan boundaries.
+If a requested action conflicts with boundaries, stop and ask for explicit clarification.
+Do not invent scope outside listed tasks unless user explicitly approves expansion.
+For sensitive operations such as service restarts, permission changes, destructive commands, migrations, dependency upgrades, or external side effects, warn the user and require explicit confirmation before proceeding.
+Record approved deviations, boundary overrides, sensitive-operation confirmations, and user-raised concerns in the task note when possible; otherwise include them in the final summary.
+</step>
+
+<step name="finalization" priority="required">
+After all tasks attempted:
+
+1. Summarize execution:
+    - Total tasks: list with status (applied/skipped) and any manual amendments.
+    - Overall notes on execution flow and any deviations from plan
+2. Prompt:
+   \`\`\`
+   ════════════════════════════════════════
+   EXECUTION COMPLETE
+   ════════════════════════════════════════
+   [execution summary]
+
+   ---
+   Start a new clean session to run UNIFY: /plan:unify [plan-path]
+   \`\`\`
+</step>
+</process>
+
+<execution_logging>
+For each terminal task outcome, call tool \`plan_log_task_terminal\` exactly once.
+Do NOT use edit/write tools to append execution log records.
+
+Tool payload:
+- required: taskId, decision
+- optional: reviewStatus, note
+
+Decision enum:
+- agent_applied
+- skipped
+
+reviewStatus enum (only when decision=agent_applied):
+- accepted
+- amended_manually
+
+Timing rules:
+- skipped: call tool immediately after skip decision.
+- agent_applied: call tool only after post-apply review ([A] Accept or [B] amended manually).
+
+Notes:
+- taskId must use stable textual task id when available, otherwise fallback to task-<1-based-index>.
+- If the user's menu/review response includes text after the selected option, capture that text as the optional note/rationale.
+- Use note to preserve relevant deviations, approved overrides, sensitive-operation confirmations, and user-raised concerns for the task.
+- Do not log conversational pauses, questions, or discussion as terminal task outcomes unless the user ultimately selects Skip or completes post-apply review.
+- runtime injects timestamp and sessionId.
+</execution_logging>
+
+<output>
+Strict APPLY execution with deterministic per-task decision points.
+</output>`;
+}

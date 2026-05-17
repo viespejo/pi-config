@@ -5,13 +5,15 @@
 import { PlanError } from "../errors";
 import type { PlanStatus } from "../types";
 
+// TODO(final-status-migration): remove legacy cancelled/abandoned transitions.
 const ALLOWED_STATUS_TRANSITIONS: Record<PlanStatus, PlanStatus[]> = {
-  draft: ["pending", "cancelled", "abandoned"],
-  pending: ["draft", "in-progress", "cancelled", "abandoned"],
-  "in-progress": ["pending", "completed", "cancelled", "abandoned"],
+  draft: ["pending", "paused", "cancelled", "abandoned"],
+  pending: ["draft", "in-progress", "paused", "cancelled", "abandoned"],
+  "in-progress": ["pending", "paused", "completed", "cancelled", "abandoned"],
+  paused: ["pending", "in-progress", "completed"],
   completed: [],
-  cancelled: ["pending", "in-progress", "abandoned"],
-  abandoned: ["pending"],
+  cancelled: ["pending", "in-progress", "paused", "abandoned"],
+  abandoned: ["pending", "paused"],
 };
 
 export function canTransitionStatus(from: PlanStatus, to: PlanStatus): boolean {

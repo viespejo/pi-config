@@ -12,6 +12,7 @@ import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";
 import { selectPlan } from "../lib/plan-selector";
 import { loadConfig, getConfig } from "../lib/config";
+import { buildStrictApplyExecutePrompt } from "../lib/prompts/execute-plan-prompt";
 
 function normalizePlanRef(input: string): string {
   return input.trim().replace(/\.md$/i, "");
@@ -56,7 +57,8 @@ export function setupExecutePlanCommand(pi: ExtensionAPI) {
         if (!plan) return;
       }
 
-      await executePlanFlow(plan, plans, planService, ctx, pi);
+      const executePrompt = buildStrictApplyExecutePrompt();
+      await executePlanFlow(plan, plans, planService, ctx, pi, executePrompt);
     },
   });
 }

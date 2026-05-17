@@ -6,7 +6,7 @@ Commands for turning conversations into implementation plans and managing saved 
 
 - **Command**: `/plan:save` - creates a structured plan from the current conversation
 - **Command**: `/plan:list` - lists saved plans with options to execute or edit; archiving is available from the picker UI
-- **Command**: `/plan:execute [slug]` - executes a plan directly (selector if no slug)
+- **Command**: `/plan:execute [slug]` - executes a plan directly (selector if no slug) with per-plan execution log resume safeguards
 
 ## Usage
 
@@ -43,3 +43,31 @@ The `archiveDir` should point to a git repository. When archiving, the extension
 If any git operation fails, you'll receive a notification but the plan will still be archived locally.
 
 Config is loaded from the global scope only.
+
+## /plan:execute interaction model
+
+`/plan:execute` follows a strict APPLY workflow:
+- approval gate before starting execution
+- task-by-task processing in declared order
+- per-task menu:
+  - `[1] Apply now`
+  - `[2] Explain task first`
+  - `[3] Show code preview`
+  - `[4] Skip`
+- mandatory post-apply review after each applied task:
+  - `[A] Accept`
+  - `[B] amended manually`
+
+## Execute log + resume behavior
+
+`/plan:execute` uses a per-plan JSONL execution log stored next to the plan file:
+- `<plansDir>/<slug>.execution.jsonl`
+
+If that file already exists, runtime asks:
+- `Execution log detected for this plan. Resume from next pending task? (yes/no)`
+
+If resume is declined, execution is aborted with:
+- `Execution aborted. Delete <slug>.execution.jsonl to start from scratch.`
+
+If the log is incoherent/corrupt, execution is blocked until manual correction or deletion.
+If the log already closes the final task, runtime reports closure routing instead of dispatching more tasks.

@@ -4,15 +4,23 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { deriveSlug } from "./dependencies";
-import { parseFrontmatter, updateFrontmatterField } from "./frontmatter";
-import type { PlanInfo, PlanStatus } from "./types";
-import { PlanError } from "./errors";
-import { assertValidStatusTransition } from "./domain/lifecycle";
-import { validatePlanFrontmatter } from "./validation";
-import { appendPlanTelemetryEvent } from "./telemetry";
+import { deriveSlug } from "./dependencies.ts";
+import { parseFrontmatter, updateFrontmatterField } from "./frontmatter.ts";
+import type { PlanInfo, PlanStatus } from "./types.ts";
+import { PlanError } from "./errors.ts";
+import { assertValidStatusTransition } from "./domain/lifecycle.ts";
+import { validatePlanFrontmatter } from "./validation.ts";
+import { appendPlanTelemetryEvent } from "./telemetry.ts";
 
 export const DEFAULT_PLANS_DIR = ".agents/plans";
+
+export function buildExecutionLogFilename(slug: string): string {
+  return `${slug}.execution.jsonl`;
+}
+
+export function buildExecutionLogPath(plansDir: string, slug: string): string {
+  return path.join(plansDir, buildExecutionLogFilename(slug));
+}
 
 export interface PlanRepositoryOptions {
   plansDir?: string;
@@ -127,7 +135,6 @@ function mapPlanInfoFromFile(
     status: validated.status,
     dependencies: validated.dependencies,
     dependents: validated.dependents,
-    assignedSession: validated.assignedSession,
   };
 }
 
@@ -136,8 +143,6 @@ export interface PlanRepository {
   list: () => Promise<PlanInfo[]>;
   read: (planPath: string) => Promise<string>;
   updateStatus: (planPath: string, status: PlanStatus) => Promise<void>;
-  assignSession: (planPath: string, sessionId: string) => Promise<void>;
-  clearSessionAssignment: (planPath: string) => Promise<void>;
   delete: (planPath: string) => Promise<void>;
 }
 
@@ -229,10 +234,7 @@ export function createPlanRepository(
 
     assertValidStatusTransition(validated.status, status);
 
-    let updated = updateFrontmatterField(content, "status", status);
-    if (status === "completed" || status === "abandoned") {
-      updated = updateFrontmatterField(updated, "assigned_session", "");
-    }
+    const updated = updateFrontmatterField(content, "status", status);
 
     await fs.writeFile(planPath, updated, "utf-8");
 
@@ -246,84 +248,6 @@ export function createPlanRepository(
         to: status,
       });
     }
-
-    if (
-      (status === "completed" || status === "abandoned") &&
-      validated.assignedSession
-    ) {
-      await appendPlanTelemetryEvent(getPlansPath(), {
-        timestamp: new Date().toISOString(),
-        action: "assignment_cleared",
-        planPath,
-        planSlug: slug,
-        sessionId: validated.assignedSession,
-      });
-    }
-  };
-
-  const assignSession = async (
-    planPath: string,
-    sessionId: string,
-  ): Promise<void> => {
-    const { content, slug, validated } = await readValidatedPlan(planPath);
-
-    if (
-      validated.assignedSession &&
-      validated.assignedSession !== sessionId &&
-      validated.status !== "completed"
-    ) {
-      throw new PlanError(
-        "PLAN_ASSIGNED_TO_OTHER_SESSION",
-        `Plan is already assigned to another session: ${validated.assignedSession}`,
-        {
-          planPath,
-          assignedSession: validated.assignedSession,
-          requestedSession: sessionId,
-        },
-      );
-    }
-
-    const updated = updateFrontmatterField(
-      content,
-      "assigned_session",
-      sessionId,
-    );
-    await fs.writeFile(planPath, updated, "utf-8");
-
-    await appendPlanTelemetryEvent(getPlansPath(), {
-      timestamp: new Date().toISOString(),
-      action: "assignment_set",
-      planPath,
-      planSlug: slug,
-      sessionId,
-    });
-  };
-
-  const clearSessionAssignment = async (planPath: string): Promise<void> => {
-    const content = await fs.readFile(planPath, "utf-8");
-    const frontmatter = parseFrontmatter(content);
-
-    if (!frontmatter) {
-      throw new PlanError(
-        "INVALID_FRONTMATTER",
-        "Missing or invalid YAML frontmatter",
-        {
-          path: planPath,
-        },
-      );
-    }
-
-    const filename = path.basename(planPath);
-    const slug = deriveSlug(filename);
-    const updated = updateFrontmatterField(content, "assigned_session", "");
-    await fs.writeFile(planPath, updated, "utf-8");
-
-    await appendPlanTelemetryEvent(getPlansPath(), {
-      timestamp: new Date().toISOString(),
-      action: "assignment_cleared",
-      planPath,
-      planSlug: slug,
-    });
   };
 
   const remove = async (planPath: string): Promise<void> => {
@@ -335,8 +259,6 @@ export function createPlanRepository(
     list,
     read,
     updateStatus,
-    assignSession,
-    clearSessionAssignment,
     delete: remove,
   };
 }

@@ -82,10 +82,15 @@ With the extension loaded:
 2. Create a plan (`/plan:save`) and verify it appears in `/plan:list`.
 3. Execute a plan (`/plan:execute`) and verify:
    - status moves to `in-progress`
-   - `assigned_session` is set
    - active plan widget is shown
-4. Complete/cancel and verify status transition behavior.
-5. Change `plansDir` to another path and verify `/plan:list` reads from it.
+4. Verify per-plan execution log and resume guards:
+   - execution log path resolves to `<plansDir>/<slug>.execution.jsonl`
+   - existing log triggers `Execution log detected for this plan. Resume from next pending task? (yes/no)`
+   - declining resume aborts with `Execution aborted. Delete <slug>.execution.jsonl to start from scratch.`
+   - incoherent/corrupt logs block execution until manual correction/deletion
+   - if log already closes final task, runtime reports closure/unify routing message and does not dispatch tasks
+5. Complete/cancel and verify status transition behavior.
+6. Change `plansDir` to another path and verify `/plan:list` reads from it.
 
 ---
 

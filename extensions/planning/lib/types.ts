@@ -2,10 +2,12 @@
  * Types for planning extension
  */
 
+// TODO(final-status-migration): remove legacy "cancelled" and "abandoned" statuses.
 export type PlanStatus =
   | "draft"
   | "pending"
   | "in-progress"
+  | "paused"
   | "completed"
   | "cancelled"
   | "abandoned";
@@ -22,7 +24,6 @@ export interface PlanInfo {
   status: PlanStatus;
   dependencies: string[];
   dependents: string[];
-  assignedSession?: string;
 }
 
 export interface DependencyNode {
@@ -33,4 +34,17 @@ export interface DependencyNode {
 export interface DependencyCheckResult {
   resolved: PlanInfo[];
   unresolved: string[]; // slugs not found or not completed
+}
+
+export type ExecutionDecision = "agent_applied" | "skipped";
+
+export type ExecutionReviewStatus = "accepted" | "amended_manually";
+
+export interface PlanExecutionRecordV1 {
+  timestamp: string;
+  taskId: string;
+  decision: ExecutionDecision;
+  sessionId?: string;
+  reviewStatus?: ExecutionReviewStatus;
+  note?: string;
 }

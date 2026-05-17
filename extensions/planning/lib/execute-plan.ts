@@ -2,23 +2,45 @@
  * Shared execution flow for plans.
  */
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  copyToClipboard,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { checkDependencies, findDependencyCycle, PlanError } from "./plan-utils";
+import { checkDependencies, findDependencyCycle } from "./dependencies.ts";
+import { PlanError } from "./errors.ts";
+import * as fs from "node:fs/promises";
+import type { PlanInfo } from "./types.ts";
 import {
   createPlanExecutionWidget,
   PLAN_EXECUTION_ENTRY_TYPE,
-} from "./plan-widget";
-import { EXECUTE_PLAN_PROMPT } from "./prompts/execute-plan-prompt";
-import { appendPlanTelemetryEvent } from "./telemetry";
-import type { PlanInfo } from "./types";
-import type { PlanService } from "./plan-service";
+} from "./plan-widget.ts";
+import { appendPlanTelemetryEvent } from "./telemetry.ts";
+import type { PlanService } from "./plan-service.ts";
+import {
+  buildExecutionLogFilename,
+  buildExecutionLogPath,
+  parseExecutionLogJsonl,
+} from "./execution-log.ts";
+import { resolveStableTaskIds } from "./dependencies.ts";
+import {
+  activatePlanLogTool,
+  deactivatePlanLogTool,
+  PLAN_EXECUTION_CONTEXT_ENTRY_TYPE,
+} from "./plan-execution-runtime.ts";
 
-function hasSessionMessages(ctx: ExtensionCommandContext): boolean {
-  const entries = ctx.sessionManager.getEntries();
-  return entries.some((e) => e.type === "message");
+interface ParsedPlanTask {
+  id?: string;
+}
+
+function parsePlanTasks(planContent: string): ParsedPlanTask[] {
+  const taskBlocks = [...planContent.matchAll(/<task\b[^>]*>([\s\S]*?)<\/task>/g)];
+  return taskBlocks.map((block) => {
+    const attrs = block[0].match(/<task\b([^>]*)>/);
+    const attrText = attrs?.[1] ?? "";
+    const idMatch = attrText.match(/\bid\s*=\s*"([^"]+)"/) ?? attrText.match(/\btaskId\s*=\s*"([^"]+)"/);
+    return { id: idMatch?.[1] };
+  });
 }
 
 function sessionIdFromContext(
@@ -33,6 +55,7 @@ export async function executePlanFlow(
   planService: PlanService,
   ctx: ExtensionCommandContext,
   pi: ExtensionAPI,
+  executePrompt: string,
 ): Promise<void> {
   const planTitle = plan.title?.trim() || plan.slug;
 
@@ -55,38 +78,133 @@ export async function executePlanFlow(
     return;
   }
 
-  if (hasSessionMessages(ctx)) {
-    const choice = await ctx.ui.select(
-      "Session has existing messages. Where should the plan execute?",
-      ["Create new linked session", "Execute in current session"],
-    );
-
-    if (choice === undefined) return;
-
-    if (choice === "Create new linked session") {
-      const parentSession = ctx.sessionManager.getSessionFile();
-      const result = await ctx.newSession({ parentSession });
-      if (result.cancelled) {
-        ctx.ui.notify("New session creation was cancelled", "info");
-        return;
-      }
-    }
-  }
-
   if (planTitle) {
     pi.setSessionName(planTitle);
   }
 
   const currentSessionId = sessionIdFromContext(ctx);
-  if (!currentSessionId) {
-    ctx.ui.notify("Cannot execute: missing active session id", "error");
-    return;
-  }
+  const planContent = await planService.readPlan(plan.path);
+
+  const executionLogPath = buildExecutionLogPath(planService.getPlansPath(), plan.slug);
+  const taskIds = resolveStableTaskIds(parsePlanTasks(planContent));
+  let resumeNextTaskIndex = 0;
 
   try {
-    await planService.assignPlanSession(plan.path, currentSessionId);
+    await fs.access(executionLogPath);
+
+    const resumeChoice = await ctx.ui.select(
+      "Execution log detected for this plan. Resume from next pending task? (yes/no)",
+      ["yes", "no"],
+    );
+
+    if (resumeChoice !== "yes") {
+      ctx.ui.notify(
+        `Execution aborted. Delete ${buildExecutionLogFilename(plan.slug)} to start from scratch.`,
+        "info",
+      );
+      return;
+    }
+
+    const logContent = await fs.readFile(executionLogPath, "utf-8");
+    const parsed = parseExecutionLogJsonl(logContent, taskIds);
+    if (parsed.length > 0) {
+      const last = parsed[parsed.length - 1];
+      if (last) {
+        resumeNextTaskIndex = last.taskIndex + 1;
+      }
+    }
+
+    if (taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length) {
+      ctx.ui.notify(
+        "Execution already reached the last task. Run unify/closure flow to finalize.",
+        "info",
+      );
+      return;
+    }
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError?.code !== "ENOENT") {
+      if (error instanceof PlanError) {
+        ctx.ui.notify(
+          `${error.message}. Manual execution log correction or deletion is required.`,
+          "error",
+        );
+        return;
+      }
+      throw error;
+    }
+  }
+
+  const resumeTaskNumber = resumeNextTaskIndex + 1;
+  const resumeTaskId = taskIds[resumeNextTaskIndex];
+  const resumeInstruction = resumeTaskId
+    ? `Resume execution at Task ${resumeTaskNumber} (id: ${resumeTaskId}). Do not process any previous task.`
+    : `Start execution at Task ${resumeTaskNumber}.`;
+  const resumeContext = `\n\n<runtime_resume_instruction>${resumeInstruction}</runtime_resume_instruction>`;
+
+  let finalPrompt = `${executePrompt}\n\n<plan>\n${planContent}\n</plan>\n\n<plan_filename>${plan.filename}</plan_filename>${resumeContext}`;
+
+  if (ctx.hasUI) {
+    const choice = await ctx.ui.select("/plan:execute · prompt delivery", [
+      "Send now",
+      "Preview/edit before sending",
+      "Copy prompt to clipboard",
+      "Cancel",
+    ]);
+
+    if (!choice || choice === "Cancel") {
+      deactivatePlanLogTool(pi);
+      ctx.ui.notify("/plan:execute cancelled", "info");
+      return;
+    }
+
+    if (choice === "Preview/edit before sending") {
+      const edited = await ctx.ui.editor(
+        "Review/edit the prompt to be sent:",
+        finalPrompt,
+      );
+
+      if (typeof edited !== "string") {
+        deactivatePlanLogTool(pi);
+        ctx.ui.notify("/plan:execute cancelled", "info");
+        return;
+      }
+
+      if (!edited.trim()) {
+        ctx.ui.notify("Empty prompt: /plan:execute cancelled", "warning");
+        return;
+      }
+
+      finalPrompt = edited;
+    }
+
+    if (choice === "Copy prompt to clipboard") {
+      try {
+        copyToClipboard(finalPrompt);
+        deactivatePlanLogTool(pi);
+        ctx.ui.notify("Prompt copied to clipboard", "info");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Failed to copy prompt: ${message}`, "error");
+      }
+      return;
+    }
+  }
+
+  const executionContext = {
+    planSlug: plan.slug,
+    executionLogPath,
+    ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+    taskIds,
+  };
+
+  pi.appendEntry(PLAN_EXECUTION_CONTEXT_ENTRY_TYPE, executionContext);
+  activatePlanLogTool(pi);
+
+  try {
     await planService.updatePlanStatus(plan.path, "in-progress");
   } catch (error) {
+    deactivatePlanLogTool(pi);
     if (error instanceof PlanError) {
       ctx.ui.notify(`Cannot start plan: ${error.message}`, "error");
       return;
@@ -103,11 +221,8 @@ export async function executePlanFlow(
     action: "execute_started",
     planPath: plan.path,
     planSlug: plan.slug,
-    sessionId: currentSessionId,
+    ...(currentSessionId ? { sessionId: currentSessionId } : {}),
   });
 
-  const planContent = await planService.readPlan(plan.path);
-  pi.sendUserMessage(
-    `${EXECUTE_PLAN_PROMPT}<plan>\n${planContent}\n</plan>\n\nPlan filename: ${plan.filename}`,
-  );
+  pi.sendUserMessage(finalPrompt);
 }

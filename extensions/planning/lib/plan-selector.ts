@@ -446,6 +446,8 @@ class PlanSelector implements Component {
         return this.theme.fg("success", value);
       case "in-progress":
         return this.theme.fg("warning", value);
+      case "paused":
+        return this.theme.fg("accent", value);
       case "draft":
         return this.theme.fg("accent", value);
       case "pending":
@@ -743,8 +745,10 @@ function buildGroupedViewByStatus(viewRoots: ViewNode[]) {
     groups.get(status)?.push(root);
   }
 
+  // TODO(final-status-migration): drop legacy cancelled/abandoned from selector ordering.
   const orderedStatuses = [
     "in-progress",
+    "paused",
     "draft",
     "pending",
     "completed",
@@ -942,8 +946,10 @@ function groupNodesByStatus(
     groups.get(status)?.push(node);
   }
 
+  // TODO(final-status-migration): drop legacy cancelled/abandoned from selector grouping.
   const orderedStatuses = [
     "in-progress",
+    "paused",
     "draft",
     "pending",
     "completed",

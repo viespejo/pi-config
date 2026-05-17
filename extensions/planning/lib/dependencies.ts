@@ -4,6 +4,20 @@
 
 import type { DependencyCheckResult, DependencyNode, PlanInfo } from "./types";
 
+export interface TaskIdentitySource {
+  id?: string | null;
+  taskId?: string | null;
+}
+
+export function resolveStableTaskId(task: TaskIdentitySource, index: number): string {
+  const explicit = (task.id ?? task.taskId ?? "").trim();
+  return explicit.length > 0 ? explicit : `task-${index + 1}`;
+}
+
+export function resolveStableTaskIds(tasks: TaskIdentitySource[]): string[] {
+  return tasks.map((task, index) => resolveStableTaskId(task, index));
+}
+
 /**
  * Derive slug from filename
  * Example: "01-01-my-plan.md" -> "01-01-my-plan"
@@ -173,6 +187,8 @@ function getStatusIcon(status: string): string {
       return "●";
     case "in-progress":
       return "◐";
+    case "paused":
+      return "◌";
     case "pending":
       return "○";
     case "cancelled":

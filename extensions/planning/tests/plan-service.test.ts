@@ -23,12 +23,6 @@ function createFakeRepository(overrides: Partial<PlanRepository> = {}) {
     updateStatus: async (planPath: string, status) => {
       calls.push(["updateStatus", planPath, status]);
     },
-    assignSession: async (planPath: string, sessionId: string) => {
-      calls.push(["assignSession", planPath, sessionId]);
-    },
-    clearSessionAssignment: async (planPath: string) => {
-      calls.push(["clearSessionAssignment", planPath]);
-    },
     delete: async (planPath: string) => {
       calls.push(["delete", planPath]);
     },
@@ -47,8 +41,6 @@ test("createPlanService exposes the expected operations", () => {
   assert.equal(typeof service.suggestNextPlan, "function");
   assert.equal(typeof service.readPlan, "function");
   assert.equal(typeof service.updatePlanStatus, "function");
-  assert.equal(typeof service.assignPlanSession, "function");
-  assert.equal(typeof service.clearPlanSession, "function");
   assert.equal(typeof service.deletePlan, "function");
 });
 
@@ -60,6 +52,18 @@ test("listPlans delegates to repository.list", async () => {
 
   assert.deepEqual(result, [{ slug: "a" }, { slug: "b" }]);
   assert.deepEqual(calls, [["list"]]);
+});
+
+test("listPlans tolerates legacy session assignment shape from repository", async () => {
+  const { repository } = createFakeRepository({
+    list: async () => [{ slug: "legacy", assignedSession: "old-session" }] as never,
+  });
+  const service = createPlanService(repository);
+
+  const result = await service.listPlans();
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.slug, "legacy");
 });
 
 test("readPlan delegates to repository.read", async () => {
@@ -79,24 +83,6 @@ test("updatePlanStatus delegates with exact arguments", async () => {
   await service.updatePlanStatus("/plans/p1.md", "in-progress");
 
   assert.deepEqual(calls, [["updateStatus", "/plans/p1.md", "in-progress"]]);
-});
-
-test("assignPlanSession delegates with exact arguments", async () => {
-  const { repository, calls } = createFakeRepository();
-  const service = createPlanService(repository);
-
-  await service.assignPlanSession("/plans/p1.md", "session-1");
-
-  assert.deepEqual(calls, [["assignSession", "/plans/p1.md", "session-1"]]);
-});
-
-test("clearPlanSession delegates with exact arguments", async () => {
-  const { repository, calls } = createFakeRepository();
-  const service = createPlanService(repository);
-
-  await service.clearPlanSession("/plans/p1.md");
-
-  assert.deepEqual(calls, [["clearSessionAssignment", "/plans/p1.md"]]);
 });
 
 test("deletePlan delegates with exact arguments", async () => {
