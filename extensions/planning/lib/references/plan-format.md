@@ -123,14 +123,29 @@ Every `auto` task has four required fields:
 ```
 
 ### verify
-**What it is:** How to prove the task is complete.
+**What it is:** How to prove the task is complete immediately after this task runs.
+
+A task's `<verify>` MUST only reference checks that are valid at that point in task order:
+
+1. checks/tests that already exist before the task starts,
+2. checks/tests created or updated by the same task, or
+3. generic compile/lint/build commands that do not depend on tests introduced by later tasks.
+
+Do NOT make a task verify itself with tests that are created in a later task. If a behavior needs new tests, create or update those tests in the same task that implements the behavior, or in an earlier task.
 
 ```xml
 <!-- GOOD -->
 <verify>curl -X POST localhost:3000/api/auth/login returns 200 with Set-Cookie header</verify>
 
+<!-- GOOD -->
+<action>Implement password reset and add password reset route tests in this task.</action>
+<verify>npm test -- password-reset.test.ts</verify>
+
 <!-- BAD -->
 <verify>It works</verify>
+
+<!-- BAD - tests are added by a later task, so this task cannot rely on them -->
+<verify>Run the password reset tests that will be created in Task 5</verify>
 ```
 
 ### done
@@ -260,6 +275,10 @@ Dependency convention:
 - "It works correctly"
 - "User experience is good"
 - "Code is clean"
+
+**Late catch-all test tasks that previous tasks depend on:**
+- Do not create Task 1 "Implement repository", Task 2 "Implement service", Task 3 "Add tests" while Task 1/2 `<verify>` fields already reference those future tests.
+- Prefer co-locating tests with the implementation task they validate: "Implement repository + repository tests", then "Implement service + service tests", then a final full verification task.
 
 **Missing context:**
 - "Use the standard approach"

@@ -96,7 +96,7 @@ Then [outcome]
     - How to do it
     - What to avoid and WHY
   </action>
-  <verify>[Command or check to prove it worked]</verify>
+  <verify>[Command or check to prove it worked. If this references new tests, create/update those tests in this same task or an earlier task.]</verify>
   <done>[Measurable acceptance criteria - links to AC-N]</done>
 </task>
 
@@ -209,8 +209,10 @@ Every `auto` task MUST have:
 - `<name>` - Action-oriented, describes outcome
 - `<files>` - Which files created/modified
 - `<action>` - Specific implementation (what to do, what to avoid)
-- `<verify>` - How to prove it worked (command, check)
+- `<verify>` - How to prove it worked immediately after this task runs (command, check)
 - `<done>` - Acceptance criteria (links to AC-N)
+
+`<verify>` must not depend on tests or artifacts created by a later task. If a task's verification needs new tests, create or update those tests in the same task, or in an earlier task. Use the final `<verification>` section for full-suite checks, not as a substitute for task-local verification.
 
 **If you can't specify Files + Action + Verify + Done, the task is too vague.**
 
@@ -316,6 +318,36 @@ dependencies: ["01-01-foundation-setup"]  # Plan doesn't actually need this slug
 
 # GOOD - genuine dependency
 dependencies: ["01-01-user-model"]  # Plan imports artifacts from this slug
+```
+
+**Late catch-all test tasks:**
+
+```xml
+<!-- BAD - Task 1 verifies with tests that only appear in Task 3 -->
+<task type="auto">
+  <name>Task 1: Implement repository behavior</name>
+  <files>src/repository.ts</files>
+  <action>Implement the repository behavior.</action>
+  <verify>Run repository tests added in Task 3.</verify>
+  <done>AC-1 satisfied</done>
+</task>
+
+<task type="auto">
+  <name>Task 3: Add tests</name>
+  <files>repository.test.ts</files>
+  <action>Add repository tests.</action>
+  <verify>Run repository.test.ts</verify>
+  <done>AC-1 covered</done>
+</task>
+
+<!-- GOOD - tests are created with the behavior they verify -->
+<task type="auto">
+  <name>Task 1: Implement repository behavior with tests</name>
+  <files>src/repository.ts, repository.test.ts</files>
+  <action>Implement the repository behavior and add/update repository tests for it.</action>
+  <verify>Run repository.test.ts</verify>
+  <done>AC-1 satisfied and covered by tests</done>
+</task>
 ```
 
 **Missing boundaries:**
