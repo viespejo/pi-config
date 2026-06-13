@@ -1,9 +1,9 @@
 ---
 title: "Adapt /plan:list UX for diagnostics-first navigation"
-phase: "04-edge-cases"
+phase: "04-new-phase"
 plan: "01"
 date: "2026-05-10"
-status: "pending"
+status: "completed"
 type: "execute"
 dependencies: []
 ---
