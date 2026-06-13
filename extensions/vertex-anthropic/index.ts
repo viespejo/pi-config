@@ -117,7 +117,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider("google-vertex-anthropic", {
     baseUrl: `https://${region}-aiplatform.googleapis.com`,
-    apiKey: "GOOGLE_CLOUD_PROJECT", // Marker
+    apiKey: "$GOOGLE_CLOUD_PROJECT", // Marker
     api: "google-vertex-anthropic",
     models: MODELS,
     streamSimple: (

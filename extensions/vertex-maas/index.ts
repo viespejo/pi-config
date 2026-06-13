@@ -100,7 +100,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("google-vertex-maas", {
     name: "Google Vertex MAAS",
     baseUrl,
-    apiKey: "GOOGLE_CLOUD_PROJECT",
+    apiKey: "$GOOGLE_CLOUD_PROJECT",
     api: "openai-completions",
     models: MODELS,
     streamSimple: (
