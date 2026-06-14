@@ -80,7 +80,7 @@ export async function showDiffInCustomDialog(
         const termRows =
           typeof tui?.terminal?.rows === "number" ? tui.terminal.rows : 40;
         const estimatedOverlayRows = Math.max(12, Math.floor(termRows * 0.88));
-        const reservedChrome = 9; // top+bottom border + sticky header/footer rows
+        const reservedChrome = 10; // top+bottom border + sticky header/footer rows
         return Math.max(8, Math.min(60, estimatedOverlayRows - reservedChrome));
       })();
 
