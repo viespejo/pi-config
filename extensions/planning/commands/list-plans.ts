@@ -17,13 +17,24 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, getConfig } from "../lib/config";
 
+import { canTransitionStatus } from "../lib/domain/lifecycle";
 import { executePlanFlow } from "../lib/execute-plan";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";
 import type { ArchiveResult } from "../lib/plan-selector";
 import { selectPlan } from "../lib/plan-selector";
-import type { PlanInfo } from "../lib/types";
+import type { PlanInfo, PlanStatus } from "../lib/types";
 import { buildStrictApplyExecutePrompt } from "../lib/prompts/execute-plan-prompt";
+import { resolveSummaryTemplateReferencePath } from "../lib/plan-save-context-resolver";
+import { buildPlanSummaryPath } from "../lib/plan-summary";
+
+const ACTIVE_PLAN_STATUSES: PlanStatus[] = [
+  "draft",
+  "pending",
+  "in-progress",
+  "paused",
+  "completed",
+];
 
 /**
  * Archive a plan by moving it to the configured archive directory.
@@ -167,8 +178,8 @@ export function setupListPlansCommand(pi: ExtensionAPI) {
       const planTitle = plan.title?.trim() || plan.slug || plan.filename;
 
       const choice = await ctx.ui.select(
-        `What would you like to do with "${planTitle}"?`,
-        ["Execute", "Edit"],
+        `Select action for "${planTitle}" (status: ${plan.status})`,
+        ["Edit", "Execute", "Change Status"],
       );
 
       if (choice === undefined) {
@@ -176,10 +187,73 @@ export function setupListPlansCommand(pi: ExtensionAPI) {
       }
 
       if (choice === "Execute") {
-        const executePrompt = buildStrictApplyExecutePrompt();
+        const summaryReference = await resolveSummaryTemplateReferencePath();
+        if (!summaryReference) {
+          ctx.ui.notify(
+            "Could not resolve planning summary template reference",
+            "error",
+          );
+          return;
+        }
+
+        const executePrompt = buildStrictApplyExecutePrompt(summaryReference);
         await executePlanFlow(plan, plans, planService, ctx, pi, executePrompt);
-      } else {
+      } else if (choice === "Edit") {
         await editPlan(plan.path, planTitle, ctx);
+      } else {
+        const validTargetStatuses = ACTIVE_PLAN_STATUSES.filter(
+          (status) =>
+            status !== plan.status && canTransitionStatus(plan.status, status),
+        );
+
+        if (validTargetStatuses.length === 0) {
+          ctx.ui.notify(
+            `No valid active status transitions from ${plan.status}`,
+            "warning",
+          );
+          return;
+        }
+
+        const labels = validTargetStatuses.map((status) => `Move to: ${status}`);
+        const targetChoice = await ctx.ui.select(
+          "Select new status",
+          labels,
+        );
+
+        if (!targetChoice) {
+          return;
+        }
+
+        const targetIndex = labels.indexOf(targetChoice);
+        const targetStatus = validTargetStatuses[targetIndex];
+
+        if (!targetStatus) {
+          return;
+        }
+
+        try {
+          if (targetStatus === "completed") {
+            const summaryPath = buildPlanSummaryPath(plan.path);
+            try {
+              await fs.access(summaryPath);
+            } catch {
+              ctx.ui.notify(
+                "Cannot mark as completed: plan SUMMARY is missing. Run /plan:execute to generate it first.",
+                "error",
+              );
+              return;
+            }
+          }
+
+          await planService.updatePlanStatus(plan.path, targetStatus);
+          ctx.ui.notify(
+            `Updated "${planTitle}" status to ${targetStatus}`,
+            "info",
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(`Failed to update status: ${message}`, "error");
+        }
       }
     },
   });

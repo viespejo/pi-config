@@ -3,8 +3,14 @@ import test from "node:test";
 
 import { buildStrictApplyExecutePrompt } from "../lib/prompts/execute-plan-prompt.ts";
 
+function buildPrompt(): string {
+  return buildStrictApplyExecutePrompt({
+    summaryTemplateReferencePath: "/tmp/summary-template.md",
+  });
+}
+
 test("execute prompt includes tool-based execution logging contract", () => {
-  const prompt = buildStrictApplyExecutePrompt();
+  const prompt = buildPrompt();
 
   assert.match(prompt, /<execution_logging>/);
   assert.match(prompt, /plan_log_task_terminal/);
@@ -19,7 +25,7 @@ test("execute prompt includes tool-based execution logging contract", () => {
 });
 
 test("execute prompt includes explicit resume rules outside execution logging", () => {
-  const prompt = buildStrictApplyExecutePrompt();
+  const prompt = buildPrompt();
 
   assert.match(prompt, /<step name="resume_rules" priority="required">/);
   assert.match(prompt, /If runtime provides `<runtime_resume_instruction>`, follow it exactly/);
@@ -27,7 +33,7 @@ test("execute prompt includes explicit resume rules outside execution logging", 
 });
 
 test("execute prompt includes richer task interaction guidance", () => {
-  const prompt = buildStrictApplyExecutePrompt();
+  const prompt = buildPrompt();
 
   assert.match(prompt, /engineering-focused minimal summary/);
   assert.match(prompt, /Key technical considerations/);
@@ -38,4 +44,13 @@ test("execute prompt includes richer task interaction guidance", () => {
   assert.match(prompt, /Do not treat conversational drift as a task decision/);
   assert.match(prompt, /sensitive operations/);
   assert.match(prompt, /user-raised concerns/);
+});
+
+test("execute prompt finalization creates summary instead of routing to unify", () => {
+  const prompt = buildPrompt();
+
+  assert.match(prompt, /\/tmp\/summary-template\.md/);
+  assert.match(prompt, /Create or update the plan SUMMARY file/);
+  assert.match(prompt, /mark the plan completed from \/plan:list/);
+  assert.doesNotMatch(prompt, /\/plan:unify/);
 });

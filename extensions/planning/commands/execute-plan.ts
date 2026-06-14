@@ -13,6 +13,7 @@ import { createPlanService } from "../lib/plan-service";
 import { selectPlan } from "../lib/plan-selector";
 import { loadConfig, getConfig } from "../lib/config";
 import { buildStrictApplyExecutePrompt } from "../lib/prompts/execute-plan-prompt";
+import { resolveSummaryTemplateReferencePath } from "../lib/plan-save-context-resolver";
 
 function normalizePlanRef(input: string): string {
   return input.trim().replace(/\.md$/i, "");
@@ -57,7 +58,16 @@ export function setupExecutePlanCommand(pi: ExtensionAPI) {
         if (!plan) return;
       }
 
-      const executePrompt = buildStrictApplyExecutePrompt();
+      const summaryReference = await resolveSummaryTemplateReferencePath();
+      if (!summaryReference) {
+        ctx.ui.notify(
+          "Could not resolve planning summary template reference",
+          "error",
+        );
+        return;
+      }
+
+      const executePrompt = buildStrictApplyExecutePrompt(summaryReference);
       await executePlanFlow(plan, plans, planService, ctx, pi, executePrompt);
     },
   });

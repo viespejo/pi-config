@@ -128,7 +128,7 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   assert.match(sent, /<runtime_resume_instruction>Resume execution at Task 2 \(id: task-2\)\. Do not process any previous task\.<\/runtime_resume_instruction>/);
 });
 
-test("executePlanFlow routes to closure message when last task already logged", async () => {
+test("executePlanFlow routes completed execution logs to summary finalization", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
   const plan = mkPlan(tmpDir);
   const logPath = path.join(tmpDir, `${plan.slug}.execution.jsonl`);
@@ -139,12 +139,12 @@ test("executePlanFlow routes to closure message when last task already logged", 
     "utf-8",
   );
 
-  const notifications: string[] = [];
   const calls: string[] = [];
+  let sent = "";
 
   const ctx = {
     ui: {
-      notify: (message: string) => notifications.push(message),
+      notify: () => {},
       select: async () => "yes",
       setWidget: () => {
         calls.push("setWidget");
@@ -160,8 +160,9 @@ test("executePlanFlow routes to closure message when last task already logged", 
     appendEntry: () => {
       calls.push("appendEntry");
     },
-    sendUserMessage: () => {
+    sendUserMessage: (message: string) => {
       calls.push("sendUserMessage");
+      sent = message;
     },
   } as any;
 
@@ -175,12 +176,9 @@ test("executePlanFlow routes to closure message when last task already logged", 
 
   await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
 
-  assert.equal(
-    notifications.includes("Execution already reached the last task. Run unify/closure flow to finalize."),
-    true,
-  );
+  assert.match(sent, /Execution already reached the last task\. Do not process any tasks\. Run finalization only/);
   assert.equal(calls.includes("updatePlanStatus"), false);
-  assert.equal(calls.includes("sendUserMessage"), false);
+  assert.equal(calls.includes("sendUserMessage"), true);
 });
 
 test("executePlanFlow blocks on incoherent execution logs", async () => {

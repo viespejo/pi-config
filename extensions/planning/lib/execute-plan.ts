@@ -115,11 +115,7 @@ export async function executePlanFlow(
     }
 
     if (taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length) {
-      ctx.ui.notify(
-        "Execution already reached the last task. Run unify/closure flow to finalize.",
-        "info",
-      );
-      return;
+      resumeNextTaskIndex = taskIds.length;
     }
   } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
@@ -137,9 +133,12 @@ export async function executePlanFlow(
 
   const resumeTaskNumber = resumeNextTaskIndex + 1;
   const resumeTaskId = taskIds[resumeNextTaskIndex];
-  const resumeInstruction = resumeTaskId
-    ? `Resume execution at Task ${resumeTaskNumber} (id: ${resumeTaskId}). Do not process any previous task.`
-    : `Start execution at Task ${resumeTaskNumber}.`;
+  const executionAlreadyComplete = taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length;
+  const resumeInstruction = executionAlreadyComplete
+    ? "Execution already reached the last task. Do not process any tasks. Run finalization only: read the summary template, create or update the plan SUMMARY, and present the execution complete message."
+    : resumeTaskId
+      ? `Resume execution at Task ${resumeTaskNumber} (id: ${resumeTaskId}). Do not process any previous task.`
+      : `Start execution at Task ${resumeTaskNumber}.`;
   const resumeContext = `\n\n<runtime_resume_instruction>${resumeInstruction}</runtime_resume_instruction>`;
 
   let finalPrompt = `${executePrompt}\n\n<plan>\n${planContent}\n</plan>\n\n<plan_filename>${plan.filename}</plan_filename>${resumeContext}`;
@@ -202,7 +201,9 @@ export async function executePlanFlow(
   activatePlanLogTool(pi);
 
   try {
-    await planService.updatePlanStatus(plan.path, "in-progress");
+    if (!executionAlreadyComplete) {
+      await planService.updatePlanStatus(plan.path, "in-progress");
+    }
   } catch (error) {
     deactivatePlanLogTool(pi);
     if (error instanceof PlanError) {

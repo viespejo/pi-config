@@ -2,7 +2,11 @@
  * Strict APPLY prompt builder for plan execution.
  */
 
-export function buildStrictApplyExecutePrompt(): string {
+export function buildStrictApplyExecutePrompt(params: {
+  summaryTemplateReferencePath: string;
+}): string {
+  const { summaryTemplateReferencePath } = params;
+
   return `<purpose>
 Execute plan tasks through a strict APPLY workflow with explicit user control.
 </purpose>
@@ -79,10 +83,20 @@ Record approved deviations, boundary overrides, sensitive-operation confirmation
 <step name="finalization" priority="required">
 After all tasks attempted:
 
-1. Summarize execution:
+1. Read the summary template at:
+   ${summaryTemplateReferencePath}
+2. Create or update the plan SUMMARY file next to the plan using the naming convention \`{plan-filename-without-.md}-SUMMARY.md\`.
+3. Build the SUMMARY from:
+    - the plan objective, acceptance criteria, tasks, boundaries, verification, and output
+    - the execution log records produced during this run
+    - any user review notes, manual amendments, skipped tasks, deviations, or caveats captured during execution
+4. Focus the SUMMARY on future planning context: what actually shipped, what future plans can build on, key files, decisions, patterns, deviations, verification, and follow-up candidates.
+5. Be explicit when verification was not performed or when acceptance criteria cannot be fully assessed from available evidence.
+6. Summarize execution:
     - Total tasks: list with status (applied/skipped) and any manual amendments.
-    - Overall notes on execution flow and any deviations from plan
-2. Prompt:
+    - SUMMARY path created/updated.
+    - Overall notes on execution flow and any deviations from plan.
+7. Prompt:
    \`\`\`
    ════════════════════════════════════════
    EXECUTION COMPLETE
@@ -90,7 +104,7 @@ After all tasks attempted:
    [execution summary]
 
    ---
-   Start a new clean session to run UNIFY: /plan:unify [plan-path]
+   Review verification results, then mark the plan completed from /plan:list → Change Status when satisfied.
    \`\`\`
 </step>
 </process>

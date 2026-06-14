@@ -311,8 +311,8 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
 
       const continuityContext = resolved.summaries.length
         ? `<continuity_context>\n<summary_sources>\n${resolved.summaries
-            .map((s) => `- ${s.filename}`)
-            .join("\n")}\n</summary_sources>\n<usage_rules>\n- Summaries are available as references only (not preloaded).\n- Consult summary files on-demand if continuity gaps appear.\n- If interview context and summaries conflict, ask the user during Delta Interview.\n</usage_rules>\n</continuity_context>`
+            .map((s) => `- ${s.path}`)
+            .join("\n")}\n</summary_sources>\n<usage_rules>\n- Summaries are available as references only; they are not preloaded.\n- Summaries describe what actually shipped in previous plan executions.\n- Prefer summaries over original plan files when reasoning about completed prior work.\n- Read relevant summaries on-demand before choosing dependencies or designing follow-up work.\n- If interview context and summaries conflict, ask the user during Delta Interview.\n</usage_rules>\n</continuity_context>`
         : `<continuity_context>\n<summary_sources>none</summary_sources>\n</continuity_context>`;
 
       const referencePaths = await resolvePlanReferencePaths();

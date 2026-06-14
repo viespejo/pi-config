@@ -31,6 +31,10 @@ export interface PlanReferencePaths {
   planTemplateReferencePath: string;
 }
 
+export interface SummaryReferencePath {
+  summaryTemplateReferencePath: string;
+}
+
 async function isReadableNonEmpty(filePath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(filePath);
@@ -60,6 +64,19 @@ export async function resolvePlanReferencePaths(): Promise<PlanReferencePaths | 
     planFormatReferencePath,
     planTemplateReferencePath,
   };
+}
+
+export async function resolveSummaryTemplateReferencePath(): Promise<SummaryReferencePath | null> {
+  const referencesDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "references",
+  );
+
+  const summaryTemplateReferencePath = path.join(referencesDir, "summary-template.md");
+
+  if (!(await isReadableNonEmpty(summaryTemplateReferencePath))) return null;
+
+  return { summaryTemplateReferencePath };
 }
 
 export async function discoverInterviewPairs(cwd: string): Promise<TechnicalInterviewCandidate[]> {
@@ -156,6 +173,56 @@ async function discoverContinuitySummariesForDependencies(
   return matched.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+async function discoverRecentContinuitySummaries(
+  cwd: string,
+  plansDir: string,
+  limit: number,
+): Promise<ContinuitySummary[]> {
+  const baseDir = path.isAbsolute(plansDir) ? plansDir : path.resolve(cwd, plansDir);
+
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(baseDir);
+  } catch {
+    return [];
+  }
+
+  const summaryFiles = entries.filter((name) => /-SUMMARY\.md$/i.test(name));
+
+  const summaries: ContinuitySummary[] = [];
+  for (const filename of summaryFiles) {
+    const filePath = path.join(baseDir, filename);
+    const stat = await fs.stat(filePath);
+
+    summaries.push({
+      path: filePath,
+      filename,
+      mtimeMs: stat.mtimeMs,
+    });
+  }
+
+  return summaries.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+}
+
+function mergeContinuitySummaries(
+  dependencySummaries: ContinuitySummary[],
+  recentSummaries: ContinuitySummary[],
+): ContinuitySummary[] {
+  const byPath = new Map<string, ContinuitySummary>();
+
+  for (const summary of dependencySummaries) {
+    byPath.set(summary.path, summary);
+  }
+
+  for (const summary of recentSummaries) {
+    if (!byPath.has(summary.path)) {
+      byPath.set(summary.path, summary);
+    }
+  }
+
+  return Array.from(byPath.values());
+}
+
 function toResolvedContext(
   candidate: TechnicalInterviewCandidate,
   source: ResolvedInterviewContext["source"],
@@ -212,10 +279,12 @@ export async function resolveInterviewContext(params: {
   void additionalInstructions;
   void recentConversationText;
 
-  const [candidates, summaries] = await Promise.all([
+  const [candidates, dependencySummaries, recentSummaries] = await Promise.all([
     discoverInterviewPairs(cwd),
     discoverContinuitySummariesForDependencies(cwd, plansDir, requestedDependencies),
+    discoverRecentContinuitySummaries(cwd, plansDir, 5),
   ]);
+  const summaries = mergeContinuitySummaries(dependencySummaries, recentSummaries);
 
   if (candidates.length === 0) {
     return {
