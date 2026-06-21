@@ -20,10 +20,9 @@ export interface ContinuitySummary {
 }
 
 export interface ResolvedInterviewContext {
-  source: "active" | "selection" | "none" | "cancelled";
+  source: "selection" | "none" | "cancelled";
   candidate: TechnicalInterviewCandidate | null;
   summaries: ContinuitySummary[];
-  confidence?: "high" | "low";
 }
 
 export interface PlanReferencePaths {
@@ -173,67 +172,15 @@ async function discoverContinuitySummariesForDependencies(
   return matched.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-async function discoverRecentContinuitySummaries(
-  cwd: string,
-  plansDir: string,
-  limit: number,
-): Promise<ContinuitySummary[]> {
-  const baseDir = path.isAbsolute(plansDir) ? plansDir : path.resolve(cwd, plansDir);
-
-  let entries: string[] = [];
-  try {
-    entries = await fs.readdir(baseDir);
-  } catch {
-    return [];
-  }
-
-  const summaryFiles = entries.filter((name) => /-SUMMARY\.md$/i.test(name));
-
-  const summaries: ContinuitySummary[] = [];
-  for (const filename of summaryFiles) {
-    const filePath = path.join(baseDir, filename);
-    const stat = await fs.stat(filePath);
-
-    summaries.push({
-      path: filePath,
-      filename,
-      mtimeMs: stat.mtimeMs,
-    });
-  }
-
-  return summaries.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
-}
-
-function mergeContinuitySummaries(
-  dependencySummaries: ContinuitySummary[],
-  recentSummaries: ContinuitySummary[],
-): ContinuitySummary[] {
-  const byPath = new Map<string, ContinuitySummary>();
-
-  for (const summary of dependencySummaries) {
-    byPath.set(summary.path, summary);
-  }
-
-  for (const summary of recentSummaries) {
-    if (!byPath.has(summary.path)) {
-      byPath.set(summary.path, summary);
-    }
-  }
-
-  return Array.from(byPath.values());
-}
-
 function toResolvedContext(
   candidate: TechnicalInterviewCandidate,
   source: ResolvedInterviewContext["source"],
-  confidence: ResolvedInterviewContext["confidence"],
   summaries: ContinuitySummary[],
 ): ResolvedInterviewContext {
   return {
     source,
     candidate,
     summaries,
-    confidence,
   };
 }
 
@@ -258,9 +205,6 @@ function sortCandidates(
 export async function resolveInterviewContext(params: {
   cwd: string;
   plansDir: string;
-  additionalInstructions: string;
-  recentConversationText?: string;
-  activeSlug?: string;
   requestedDependencies?: string[];
   interviewContextSortOrder?: InterviewContextSortOrder;
   ctx: ExtensionCommandContext;
@@ -268,23 +212,15 @@ export async function resolveInterviewContext(params: {
   const {
     cwd,
     plansDir,
-    additionalInstructions,
-    recentConversationText,
-    activeSlug,
     requestedDependencies = [],
     interviewContextSortOrder = "mtime_desc",
     ctx,
   } = params;
 
-  void additionalInstructions;
-  void recentConversationText;
-
-  const [candidates, dependencySummaries, recentSummaries] = await Promise.all([
+  const [candidates, summaries] = await Promise.all([
     discoverInterviewPairs(cwd),
     discoverContinuitySummariesForDependencies(cwd, plansDir, requestedDependencies),
-    discoverRecentContinuitySummaries(cwd, plansDir, 5),
   ]);
-  const summaries = mergeContinuitySummaries(dependencySummaries, recentSummaries);
 
   if (candidates.length === 0) {
     return {
@@ -292,13 +228,6 @@ export async function resolveInterviewContext(params: {
       candidate: null,
       summaries,
     };
-  }
-
-  if (activeSlug) {
-    const activeCandidate = candidates.find((c) => c.slug === activeSlug.trim());
-    if (activeCandidate) {
-      return toResolvedContext(activeCandidate, "active", "high", summaries);
-    }
   }
 
   const sortedCandidates = sortCandidates(candidates, interviewContextSortOrder);
@@ -324,7 +253,7 @@ export async function resolveInterviewContext(params: {
 
     const selectedCandidate = sortedCandidates.find((c) => c.slug === selectedSlug);
     if (selectedCandidate) {
-      return toResolvedContext(selectedCandidate, "selection", "low", summaries);
+      return toResolvedContext(selectedCandidate, "selection", summaries);
     }
 
     return {

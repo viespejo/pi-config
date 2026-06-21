@@ -11,7 +11,6 @@ export interface PlanSuggestion {
   recommendedPhase: string;
   recommendedPlan: string;
   recommendedFilenamePrefix: string;
-  recommendedDependencies: string[];
   alternativeNewPhaseFilenamePrefix: string;
 }
 
@@ -76,7 +75,6 @@ export function createPlanService(repository: PlanRepository): PlanService {
         recommendedPlan: pad2(recommendedPlanNumber),
         recommendedFilenamePrefix:
           `${pad2(recommendedPhaseNumber)}-${pad2(recommendedPlanNumber)}`,
-        recommendedDependencies: latest ? [latest.slug] : [],
         alternativeNewPhaseFilenamePrefix: `${pad2(nextPhaseNumber)}-01`,
       };
     },

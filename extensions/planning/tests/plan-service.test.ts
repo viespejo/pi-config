@@ -103,7 +103,6 @@ test("suggestNextPlan returns 01-01 on empty/legacy repository", async () => {
   const suggestion = await service.suggestNextPlan();
 
   assert.equal(suggestion.recommendedFilenamePrefix, "01-01");
-  assert.deepEqual(suggestion.recommendedDependencies, []);
   assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "02-01");
 });
 
@@ -120,7 +119,6 @@ test("suggestNextPlan increments latest semantic plan in same phase", async () =
 
   assert.equal(suggestion.latestPlan, "01-02-ux.md");
   assert.equal(suggestion.recommendedFilenamePrefix, "01-03");
-  assert.deepEqual(suggestion.recommendedDependencies, ["01-02-ux"]);
   assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "02-01");
 });
 
@@ -137,7 +135,6 @@ test("suggestNextPlan follows highest phase/plan combination", async () => {
   const suggestion = await service.suggestNextPlan();
 
   assert.equal(suggestion.recommendedFilenamePrefix, "02-02");
-  assert.deepEqual(suggestion.recommendedDependencies, ["02-01-b"]);
   assert.equal(suggestion.alternativeNewPhaseFilenamePrefix, "03-01");
 });
 

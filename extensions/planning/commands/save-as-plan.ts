@@ -9,33 +9,66 @@
 import {
   copyToClipboard,
   type ExtensionAPI,
+  type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { getConfig, loadConfig } from "../lib/config";
 import { createPlanRepository } from "../lib/plan-repository";
 import { createPlanService } from "../lib/plan-service";
+import type { PlanInfo } from "../lib/types";
 import {
   resolveInterviewContext,
   resolvePlanReferencePaths,
 } from "../lib/plan-save-context-resolver";
 
+async function selectPlanDependencies(
+  ctx: ExtensionCommandContext,
+  plans: PlanInfo[],
+): Promise<string[] | null> {
+  if (!ctx.hasUI || plans.length === 0) return [];
+
+  const selected = new Set<string>();
+  const doneLabel = "Done selecting dependencies";
+  const noneLabel = "No dependencies";
+
+  while (true) {
+    const available = plans.filter((plan) => !selected.has(plan.slug));
+    const labels = [
+      selected.size === 0 ? noneLabel : doneLabel,
+      ...available.map(
+        (plan) => `${plan.slug} — ${plan.title || plan.filename}`,
+      ),
+    ];
+
+    const choice = await ctx.ui.select("/plan:save · dependencies", labels);
+    if (!choice) return null;
+
+    if (choice === noneLabel || choice === doneLabel) {
+      return [...selected];
+    }
+
+    const slug = choice.split(" — ")[0]?.trim();
+    if (slug) selected.add(slug);
+  }
+}
+
 function buildStrictPlanningPrompt(params: {
   additionalInstructions: string;
-  contextSummary: string;
   interviewContextReference: string;
   continuityContext: string;
   planFormatReferencePath: string;
   planTemplateReferencePath: string;
   numberingSuggestion: string;
+  selectedDependencies: string[];
   materializationDate: string;
 }): string {
   const {
     additionalInstructions,
-    contextSummary,
     interviewContextReference,
     continuityContext,
     planFormatReferencePath,
     planTemplateReferencePath,
     numberingSuggestion,
+    selectedDependencies,
     materializationDate,
   } = params;
 
@@ -43,7 +76,10 @@ function buildStrictPlanningPrompt(params: {
     ? `\n<additional_instructions>\n${additionalInstructions}\n</additional_instructions>`
     : "";
 
-  const contextBlock = `\n<loaded_context>\n<summary>\n${contextSummary}\n</summary>\n${interviewContextReference}\n</loaded_context>`;
+  const contextBlock = `\n<loaded_context>\n${interviewContextReference}\n</loaded_context>`;
+  const selectedDependenciesBlock = selectedDependencies.length
+    ? `<selected_dependencies>\n${selectedDependencies.map((slug) => `- ${slug}`).join("\n")}\n</selected_dependencies>`
+    : `<selected_dependencies>none</selected_dependencies>`;
 
   return `<purpose>
 Execute strict planning workflow for /plan:save.
@@ -194,12 +230,16 @@ The draft MUST follow this structure:
 7) <verification>
 </draft_contract>
 
-Also suggest candidate phase/plan numbering and dependencies based on existing plans.
-Use the following precomputed suggestion as a strong default unless user asks otherwise:
+Also suggest candidate phase/plan numbering based on existing plans.
+Use the following precomputed numbering suggestion as a strong default unless user asks otherwise.
+Use exactly the selected dependencies in frontmatter unless the user explicitly changes them during the planning interview.
+Do not add dependencies merely because a plan is recent, previous, latest, or in the same phase.
+If scope is too large for one plan, propose split and ask confirmation.
 
 <numbering_suggestion>
 ${numberingSuggestion}
 </numbering_suggestion>
+${selectedDependenciesBlock}
 </step>
 
 <step name="approval_gate" priority="required">
@@ -259,27 +299,32 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
       await loadConfig();
 
       const additionalInstructions = args.trim();
-      const { activeTechnicalInterviewSlug, plansDir, interviewContextSortOrder } = getConfig();
+      const { plansDir, interviewContextSortOrder } = getConfig();
 
       const repository = createPlanRepository(ctx.cwd, { plansDir });
       const planService = createPlanService(repository);
+      const plans = await planService.listPlans();
       const planSuggestion = await planService.suggestNextPlan();
+      const selectedDependencies = await selectPlanDependencies(ctx, plans);
+
+      if (selectedDependencies === null) {
+        ctx.ui.notify("/plan:save cancelled", "info");
+        return;
+      }
 
       const numberingSuggestion = [
         `Recommended (continue current phase): ${planSuggestion.recommendedFilenamePrefix}`,
         `Recommended phase metadata: ${planSuggestion.recommendedPhase}`,
         `Recommended plan metadata: ${planSuggestion.recommendedPlan}`,
-        `Recommended dependencies: ${planSuggestion.recommendedDependencies.length ? planSuggestion.recommendedDependencies.join(", ") : "none"}`,
         `Alternative (start new phase): ${planSuggestion.alternativeNewPhaseFilenamePrefix}`,
-        `Reference latest plan: ${planSuggestion.latestPlan ?? "none"}`,
+        `Latest numbered plan for numbering only: ${planSuggestion.latestPlan ?? "none"}`,
+        "Latest numbered plan is not a dependency unless it is listed in selected_dependencies.",
       ].join("\n");
 
       const resolved = await resolveInterviewContext({
         cwd: ctx.cwd,
         plansDir,
-        additionalInstructions,
-        activeSlug: activeTechnicalInterviewSlug,
-        requestedDependencies: [],
+        requestedDependencies: selectedDependencies,
         interviewContextSortOrder,
         ctx,
       });
@@ -301,18 +346,16 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
         );
       }
 
-      const contextSummary = resolved.candidate
-        ? `Context slug: ${resolved.candidate.slug}\nSource: ${resolved.source}${resolved.confidence ? `\nConfidence: ${resolved.confidence}` : ""}`
-        : "Context source: none";
-
       const interviewContextReference = resolved.candidate
-        ? `<interview_context mode="deterministic">\n<slug>${resolved.candidate.slug}</slug>\n<source>${resolved.source}</source>\n<log_path>${resolved.candidate.logPath}</log_path>\n<plan_path>${resolved.candidate.planPath}</plan_path>\n<read_requirement>Read both files before deciding whether Delta Interview is needed and before producing final draft.</read_requirement>\n</interview_context>`
-        : "<interview_context mode=\"none\">No technical interview context selected.</interview_context>";
+        ? `<interview_context mode="selected">\n<slug>${resolved.candidate.slug}</slug>\n<source>${resolved.source}</source>\n<log_path>${resolved.candidate.logPath}</log_path>\n<plan_path>${resolved.candidate.planPath}</plan_path>\n<read_requirement>Read both files before deciding whether Delta Interview is needed and before producing final draft.</read_requirement>\n</interview_context>`
+        : '<interview_context mode="none">No technical interview context selected.</interview_context>';
 
       const continuityContext = resolved.summaries.length
         ? `<continuity_context>\n<summary_sources>\n${resolved.summaries
             .map((s) => `- ${s.path}`)
-            .join("\n")}\n</summary_sources>\n<usage_rules>\n- Summaries are available as references only; they are not preloaded.\n- Summaries describe what actually shipped in previous plan executions.\n- Prefer summaries over original plan files when reasoning about completed prior work.\n- Read relevant summaries on-demand before choosing dependencies or designing follow-up work.\n- If interview context and summaries conflict, ask the user during Delta Interview.\n</usage_rules>\n</continuity_context>`
+            .join(
+              "\n",
+            )}\n</summary_sources>\n<usage_rules>\n- Summaries are available as references only; they are not preloaded.\n- Summaries correspond only to selected dependencies.\n- Summaries describe what actually shipped in previous plan executions.\n- Prefer summaries over original plan files when reasoning about completed prior work.\n- Read them on-demand to understand shipped dependency behavior.\n- Do not change dependencies based on summaries without explicit user confirmation.\n- If interview context and summaries conflict, ask the user during Delta Interview.\n</usage_rules>\n</continuity_context>`
         : `<continuity_context>\n<summary_sources>none</summary_sources>\n</continuity_context>`;
 
       const referencePaths = await resolvePlanReferencePaths();
@@ -324,18 +367,19 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
         return;
       }
 
-      const { planFormatReferencePath, planTemplateReferencePath } = referencePaths;
+      const { planFormatReferencePath, planTemplateReferencePath } =
+        referencePaths;
 
       const materializationDate = new Date().toISOString().slice(0, 10);
 
       let prompt = buildStrictPlanningPrompt({
         additionalInstructions,
-        contextSummary,
         interviewContextReference,
         continuityContext,
         planFormatReferencePath,
         planTemplateReferencePath,
         numberingSuggestion,
+        selectedDependencies,
         materializationDate,
       });
 
@@ -376,7 +420,8 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
             copyToClipboard(prompt);
             ctx.ui.notify("Prompt copied to clipboard", "info");
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             ctx.ui.notify(`Failed to copy prompt: ${message}`, "error");
           }
           return;

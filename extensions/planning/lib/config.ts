@@ -19,8 +19,6 @@ export interface PlanningConfig {
   archiveDir?: string;
   /** Directory where active plans are stored (relative to project cwd or absolute) */
   plansDir?: string;
-  /** Optional default technical interview slug to seed /plan:save */
-  activeTechnicalInterviewSlug?: string;
   /** Sort order for /plan:save interview context selection list */
   interviewContextSortOrder?: InterviewContextSortOrder;
 }
@@ -28,14 +26,12 @@ export interface PlanningConfig {
 export interface ResolvedPlanningConfig {
   archiveDir: string;
   plansDir: string;
-  activeTechnicalInterviewSlug?: string;
   interviewContextSortOrder: InterviewContextSortOrder;
 }
 
 const DEFAULTS: ResolvedPlanningConfig = {
   archiveDir: ".agentes/archived-plans",
   plansDir: ".agents/plans",
-  activeTechnicalInterviewSlug: undefined,
   interviewContextSortOrder: "mtime_desc",
 };
 
@@ -61,14 +57,6 @@ export async function loadConfig(): Promise<ResolvedPlanningConfig> {
 
     if (typeof parsed.plansDir === "string" && parsed.plansDir.trim()) {
       config.plansDir = parsed.plansDir.trim();
-    }
-
-    if (
-      typeof parsed.activeTechnicalInterviewSlug === "string" &&
-      parsed.activeTechnicalInterviewSlug.trim()
-    ) {
-      config.activeTechnicalInterviewSlug =
-        parsed.activeTechnicalInterviewSlug.trim();
     }
 
     if (
