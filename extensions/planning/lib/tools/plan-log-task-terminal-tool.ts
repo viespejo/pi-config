@@ -40,18 +40,27 @@ const planLogTaskTerminalTool = defineTool({
   name: PLAN_LOG_TASK_TERMINAL_TOOL,
   label: "Plan Log Task Terminal",
   description:
-    "Append a terminal execution-log record for the current /plan:execute task.",
-  promptSnippet: "Append terminal task decisions to execution log via runtime",
+    "Append an execution-log record for the current /plan:execute task.",
+  promptSnippet: "Append task decisions and follow-up notes to execution log via runtime",
   promptGuidelines: [
-    "Use plan_log_task_terminal exactly once per processed task terminal outcome (skipped or reviewed apply).",
+    "Use plan_log_task_terminal for each processed task terminal outcome (skipped or reviewed apply).",
+    "Call plan_log_task_terminal again for the same task when later work adds relevant execution details, amendments, deviations, or verification notes.",
     "Use plan_log_task_terminal instead of direct file writes for execution log updates.",
   ],
   parameters: Type.Object({
     taskId: Type.String({ description: "Stable task id (e.g. task-2 or textual id)" }),
-    decision: Type.Union([
-      Type.Literal("agent_applied"),
-      Type.Literal("skipped"),
-    ]),
+    recordType: Type.Optional(
+      Type.Union([
+        Type.Literal("terminal"),
+        Type.Literal("follow_up"),
+      ]),
+    ),
+    decision: Type.Optional(
+      Type.Union([
+        Type.Literal("agent_applied"),
+        Type.Literal("skipped"),
+      ]),
+    ),
     reviewStatus: Type.Optional(
       Type.Union([
         Type.Literal("accepted"),
@@ -82,6 +91,31 @@ const planLogTaskTerminalTool = defineTool({
       );
     }
 
+    const recordType = params.recordType ?? "terminal";
+
+    if (recordType === "terminal" && !params.decision) {
+      throw new PlanError(
+        "INVALID_EXECUTION_LOG",
+        "decision is required when recordType=terminal",
+      );
+    }
+
+    if (recordType === "follow_up") {
+      if (params.decision || params.reviewStatus) {
+        throw new PlanError(
+          "INVALID_EXECUTION_LOG",
+          "decision and reviewStatus must not be provided when recordType=follow_up",
+        );
+      }
+
+      if (!params.note?.trim()) {
+        throw new PlanError(
+          "INVALID_EXECUTION_LOG",
+          "note is required when recordType=follow_up",
+        );
+      }
+    }
+
     if (params.decision === "agent_applied" && !params.reviewStatus) {
       throw new PlanError(
         "INVALID_EXECUTION_LOG",
@@ -99,7 +133,8 @@ const planLogTaskTerminalTool = defineTool({
     const record: PlanExecutionRecordV1 = {
       timestamp: new Date().toISOString(),
       taskId,
-      decision: params.decision,
+      ...(recordType !== "terminal" ? { recordType } : {}),
+      ...(params.decision ? { decision: params.decision } : {}),
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
       ...(params.reviewStatus ? { reviewStatus: params.reviewStatus } : {}),
       ...(params.note ? { note: params.note } : {}),
@@ -115,7 +150,9 @@ const planLogTaskTerminalTool = defineTool({
       content: [
         {
           type: "text",
-          text: `Logged terminal task record: ${taskId} (${params.decision})`,
+          text: recordType === "follow_up"
+            ? `Logged follow-up task record: ${taskId}`
+            : `Logged terminal task record: ${taskId} (${params.decision})`,
         },
       ],
       details: {

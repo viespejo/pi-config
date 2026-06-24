@@ -3,9 +3,15 @@ import * as path from "node:path";
 import { PlanError } from "./errors.ts";
 import type {
   ExecutionDecision,
+  ExecutionRecordType,
   ExecutionReviewStatus,
   PlanExecutionRecordV1,
 } from "./types.ts";
+
+const VALID_RECORD_TYPES: ReadonlySet<ExecutionRecordType> = new Set([
+  "terminal",
+  "follow_up",
+]);
 
 const VALID_EXECUTION_DECISIONS: ReadonlySet<ExecutionDecision> = new Set([
   "agent_applied",
@@ -42,8 +48,6 @@ export function parseExecutionLogJsonl(
     .filter((line) => line.length > 0);
 
   const parsed: ParsedExecutionRecord[] = [];
-  let lastTaskIndex = -1;
-
   for (let i = 0; i < lines.length; i++) {
     const lineNumber = i + 1;
     const line = lines[i];
@@ -69,6 +73,7 @@ export function parseExecutionLogJsonl(
     const record = value as Partial<PlanExecutionRecordV1>;
     const timestamp = record.timestamp?.trim();
     const taskId = record.taskId?.trim();
+    const recordType = record.recordType ?? "terminal";
     const decision = record.decision;
 
     if (!timestamp) {
@@ -85,11 +90,34 @@ export function parseExecutionLogJsonl(
       );
     }
 
-    if (!decision || !VALID_EXECUTION_DECISIONS.has(decision)) {
+    if (!VALID_RECORD_TYPES.has(recordType)) {
+      throw new PlanError(
+        "INVALID_EXECUTION_LOG",
+        `Execution log line ${lineNumber} has invalid recordType`,
+      );
+    }
+
+    if (recordType === "terminal" && (!decision || !VALID_EXECUTION_DECISIONS.has(decision))) {
       throw new PlanError(
         "INVALID_EXECUTION_LOG",
         `Execution log line ${lineNumber} has invalid decision`,
       );
+    }
+
+    if (recordType === "follow_up") {
+      if (decision) {
+        throw new PlanError(
+          "INVALID_EXECUTION_LOG",
+          `Execution log line ${lineNumber} must not include decision for follow_up`,
+        );
+      }
+
+      if (!record.note?.trim()) {
+        throw new PlanError(
+          "INVALID_EXECUTION_LOG",
+          `Execution log line ${lineNumber} requires note for follow_up`,
+        );
+      }
     }
 
     const taskIndex = indexByTaskId.get(taskId);
@@ -100,14 +128,7 @@ export function parseExecutionLogJsonl(
       );
     }
 
-    if (taskIndex < lastTaskIndex) {
-      throw new PlanError(
-        "INVALID_EXECUTION_LOG",
-        `Execution log line ${lineNumber} moves backwards in task order`,
-      );
-    }
-
-    if (decision === "agent_applied") {
+    if (recordType === "terminal" && decision === "agent_applied") {
       if (!record.reviewStatus || !VALID_REVIEW_STATUSES.has(record.reviewStatus)) {
         throw new PlanError(
           "INVALID_EXECUTION_LOG",
@@ -116,14 +137,14 @@ export function parseExecutionLogJsonl(
       }
     }
 
-    lastTaskIndex = taskIndex;
     parsed.push({
       line: lineNumber,
       taskIndex,
       record: {
         timestamp,
         taskId,
-        decision,
+        ...(record.recordType ? { recordType } : {}),
+        ...(decision ? { decision } : {}),
         ...(record.sessionId ? { sessionId: record.sessionId } : {}),
         ...(record.reviewStatus ? { reviewStatus: record.reviewStatus } : {}),
         ...(record.note ? { note: record.note } : {}),

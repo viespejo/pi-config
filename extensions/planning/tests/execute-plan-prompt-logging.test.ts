@@ -16,7 +16,8 @@ test("execute prompt includes tool-based execution logging contract", () => {
   assert.match(prompt, /plan_log_task_terminal/);
   assert.match(prompt, /Do NOT use edit\/write tools/);
   assert.match(prompt, /required: taskId, decision/);
-  assert.match(prompt, /optional: reviewStatus, note/);
+  assert.match(prompt, /optional: recordType="terminal", reviewStatus, note/);
+  assert.match(prompt, /required: taskId, recordType="follow_up", note/);
   assert.match(prompt, /agent_applied/);
   assert.match(prompt, /skipped/);
   assert.match(prompt, /accepted/);

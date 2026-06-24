@@ -106,7 +106,7 @@ test("parseExecutionLogJsonl requires reviewStatus for agent_applied", () => {
   );
 });
 
-test("parseExecutionLogJsonl rejects non-monotonic task order", () => {
+test("parseExecutionLogJsonl allows follow-up records for earlier tasks", () => {
   const content = [
     JSON.stringify({
       timestamp: "2026-05-17T01:00:00.000Z",
@@ -116,14 +116,31 @@ test("parseExecutionLogJsonl rejects non-monotonic task order", () => {
     JSON.stringify({
       timestamp: "2026-05-17T01:01:00.000Z",
       taskId: "task-1",
-      decision: "skipped",
+      recordType: "follow_up",
+      note: "Follow-up context added after task-2.",
     }),
   ].join("\n");
 
+  const parsed = parseExecutionLogJsonl(content, ["task-1", "task-2"]);
+
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0]?.taskIndex, 1);
+  assert.equal(parsed[1]?.taskIndex, 0);
+  assert.equal(parsed[1]?.record.recordType, "follow_up");
+  assert.equal(parsed[1]?.record.note, "Follow-up context added after task-2.");
+});
+
+test("parseExecutionLogJsonl rejects follow-up records without notes", () => {
+  const content = JSON.stringify({
+    timestamp: "2026-05-17T01:00:00.000Z",
+    taskId: "task-1",
+    recordType: "follow_up",
+  });
+
   assert.throws(
-    () => parseExecutionLogJsonl(content, ["task-1", "task-2"]),
+    () => parseExecutionLogJsonl(content, ["task-1"]),
     (error: unknown) => error instanceof PlanError
       && error.code === "INVALID_EXECUTION_LOG"
-      && /moves backwards/.test(error.message),
+      && /requires note for follow_up/.test(error.message),
   );
 });

@@ -108,10 +108,8 @@ export async function executePlanFlow(
     const logContent = await fs.readFile(executionLogPath, "utf-8");
     const parsed = parseExecutionLogJsonl(logContent, taskIds);
     if (parsed.length > 0) {
-      const last = parsed[parsed.length - 1];
-      if (last) {
-        resumeNextTaskIndex = last.taskIndex + 1;
-      }
+      const maxTaskIndex = Math.max(...parsed.map((entry) => entry.taskIndex));
+      resumeNextTaskIndex = maxTaskIndex + 1;
     }
 
     if (taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length) {

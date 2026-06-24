@@ -36,6 +36,8 @@ export interface DependencyCheckResult {
   unresolved: string[]; // slugs not found or not completed
 }
 
+export type ExecutionRecordType = "terminal" | "follow_up";
+
 export type ExecutionDecision = "agent_applied" | "skipped";
 
 export type ExecutionReviewStatus = "accepted" | "amended_manually";
@@ -43,7 +45,8 @@ export type ExecutionReviewStatus = "accepted" | "amended_manually";
 export interface PlanExecutionRecordV1 {
   timestamp: string;
   taskId: string;
-  decision: ExecutionDecision;
+  recordType?: ExecutionRecordType;
+  decision?: ExecutionDecision;
   sessionId?: string;
   reviewStatus?: ExecutionReviewStatus;
   note?: string;

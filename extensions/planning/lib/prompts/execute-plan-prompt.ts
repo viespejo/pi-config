@@ -110,14 +110,19 @@ After all tasks attempted:
 </process>
 
 <execution_logging>
-For each terminal task outcome, call tool \`plan_log_task_terminal\` exactly once.
+For each terminal task outcome, call tool \`plan_log_task_terminal\`.
+If later work on the same task adds relevant execution details, amendments, deviations, verification notes, or user review context, call \`plan_log_task_terminal\` again for that same task with the new information in \`note\`.
 Do NOT use edit/write tools to append execution log records.
 
-Tool payload:
+Tool payload for terminal task outcomes:
 - required: taskId, decision
-- optional: reviewStatus, note
+- optional: recordType="terminal", reviewStatus, note
 
-Decision enum:
+Tool payload for follow-up information:
+- required: taskId, recordType="follow_up", note
+- do not include decision or reviewStatus
+
+Decision enum for terminal records:
 - agent_applied
 - skipped
 
@@ -132,7 +137,9 @@ Timing rules:
 Notes:
 - taskId must use stable textual task id when available, otherwise fallback to task-<1-based-index>.
 - If the user's menu/review response includes text after the selected option, capture that text as the optional note/rationale.
-- Use note to preserve relevant deviations, approved overrides, sensitive-operation confirmations, and user-raised concerns for the task.
+- Use note to preserve relevant deviations, approved overrides, sensitive-operation confirmations, user-raised concerns, follow-up amendments, and verification observations for the task.
+- Use recordType="follow_up" when later work, including work discovered during another task, adds material context for an already logged task.
+- Avoid duplicate log calls for the same information; additional calls for the same task should add materially new context.
 - Do not log conversational pauses, questions, or discussion as terminal task outcomes unless the user ultimately selects Skip or completes post-apply review.
 - runtime injects timestamp and sessionId.
 </execution_logging>

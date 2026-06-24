@@ -128,6 +128,52 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   assert.match(sent, /<runtime_resume_instruction>Resume execution at Task 2 \(id: task-2\)\. Do not process any previous task\.<\/runtime_resume_instruction>/);
 });
 
+test("executePlanFlow resumes from highest recorded task when latest record is an earlier-task follow-up", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
+  const plan = mkPlan(tmpDir);
+  const logPath = path.join(tmpDir, `${plan.slug}.execution.jsonl`);
+
+  await fs.writeFile(
+    logPath,
+    [
+      JSON.stringify({ timestamp: "2026-05-17T01:00:00.000Z", taskId: "task-2", decision: "skipped" }),
+      JSON.stringify({ timestamp: "2026-05-17T01:01:00.000Z", taskId: "task-1", recordType: "follow_up", note: "Follow-up context." }),
+    ].join("\n"),
+    "utf-8",
+  );
+
+  let sent = "";
+
+  const ctx = {
+    ui: {
+      notify: () => {},
+      select: async () => "yes",
+      setWidget: () => {},
+    },
+    sessionManager: { getSessionFile: () => "s-1" },
+  } as any;
+
+  const pi = {
+    setSessionName: () => {},
+    getActiveTools: () => ["read", "bash", "edit", "write"],
+    setActiveTools: () => {},
+    appendEntry: () => {},
+    sendUserMessage: (message: string) => {
+      sent = message;
+    },
+  } as any;
+
+  const planService = {
+    getPlansPath: () => tmpDir,
+    readPlan: async () => mkPlanContent(),
+    updatePlanStatus: async () => {},
+  } as any;
+
+  await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
+
+  assert.match(sent, /Execution already reached the last task\. Do not process any tasks\. Run finalization only/);
+});
+
 test("executePlanFlow routes completed execution logs to summary finalization", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
   const plan = mkPlan(tmpDir);
