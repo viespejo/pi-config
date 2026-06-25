@@ -7,7 +7,6 @@ const MAX_COMMAND_CHARS = 4_000;
 
 const PREFERRED_EXPLAIN_MODELS = [
   ["google-gemini-cli", "gemini-3-flash-preview"],
-  ["github-copilot", "gpt-5-mini"],
 ] as const;
 
 const EXPLAIN_SYSTEM_PROMPT = `You explain shell commands for human approval decisions.
@@ -38,7 +37,10 @@ type ExplainerOutput = {
   flags?: string[];
 };
 
-export type BashExplanationRecommendation = "safe-ish" | "caution" | "dangerous";
+export type BashExplanationRecommendation =
+  | "safe-ish"
+  | "caution"
+  | "dangerous";
 
 export type BashExplanationSuccess = {
   ok: true;
@@ -74,7 +76,9 @@ export type BashExplanationError = {
   };
 };
 
-export type BashExplanationResult = BashExplanationSuccess | BashExplanationError;
+export type BashExplanationResult =
+  | BashExplanationSuccess
+  | BashExplanationError;
 
 function selectExplanationModel(ctx: ExplainCtx): Model<Api> | undefined {
   const availableModels = ctx.modelRegistry.getAvailable();
@@ -241,7 +245,10 @@ export async function generateBashExplanation(params: {
     };
 
     const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), EXPLAIN_TIMEOUT_MS);
+    const timeoutId = setTimeout(
+      () => timeoutController.abort(),
+      EXPLAIN_TIMEOUT_MS,
+    );
 
     const reasoning = model.reasoning ? "minimal" : undefined;
 
