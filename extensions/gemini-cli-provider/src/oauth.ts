@@ -183,8 +183,8 @@ async function discoverProject(accessToken: string, onProgress?: (message: strin
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
-    "User-Agent": "GeminiCLI/0.35.3/gemini-3-pro-preview (linux; x64; terminal) google-api-nodejs-client/9.15.1",
-    "X-Goog-Api-Client": "gl-node/22.17.0",
+    "User-Agent": "GeminiCLI-tui/0.49.0/gemini-3.1-pro-preview (linux; x64; terminal) google-api-nodejs-client/9.11.0",
+    "X-Goog-Api-Client": "gl-node/24.15.0",
   };
 
   onProgress?.("Checking for existing Cloud Code Assist project...");

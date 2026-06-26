@@ -9,6 +9,7 @@ export const GEMINI_CLI_SUPPORTED_MODELS = [
 	"gemini-3-flash-preview",
 	"gemini-3.1-flash-lite-preview",
 	"gemini-3.1-pro-preview",
+	"gemini-3-flash",
 ] as const;
 
 export type GeminiCliModelId = (typeof GEMINI_CLI_SUPPORTED_MODELS)[number];

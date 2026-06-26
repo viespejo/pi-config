@@ -413,8 +413,8 @@ export function streamGeminiCli(
         Authorization: `Bearer ${credentials.token}`,
         "Content-Type": "application/json",
         Accept: "text/event-stream",
-        "User-Agent": "GeminiCLI/0.35.3/gemini-3.1-pro-preview (linux; x64; terminal) google-api-nodejs-client/9.15.1",
-        "X-Goog-Api-Client": "gl-node/22.17.0",
+        "User-Agent": "GeminiCLI-tui/0.49.0/gemini-3.1-pro-preview (linux; x64; terminal) google-api-nodejs-client/9.11.0",
+        "X-Goog-Api-Client": "gl-node/24.15.0",
         "Client-Metadata": JSON.stringify({
           ideType: "IDE_UNSPECIFIED",
           platform: "PLATFORM_UNSPECIFIED",

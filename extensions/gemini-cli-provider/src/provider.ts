@@ -52,6 +52,23 @@ export const geminiCliProviderConfig: ProviderConfig = {
 			maxTokens: 65536,
 		},
 		{
+			id: GEMINI_CLI_SUPPORTED_MODELS[3],
+			name: "Gemini 3.5 Flash",
+			api: "google-gemini-cli",
+			baseUrl: GEMINI_CLI_BASE_URL,
+			reasoning: true,
+			thinkingLevelMap: {
+				minimal: "MINIMAL",
+				low: "LOW",
+				medium: "MEDIUM",
+				high: "HIGH",
+			},
+			input: ["text", "image"],
+			cost: zeroCost,
+			contextWindow: 1048576,
+			maxTokens: 65536,
+		},
+		{
 			id: GEMINI_CLI_SUPPORTED_MODELS[1],
 			name: "Gemini 3.1 Flash Lite Preview",
 			api: "google-gemini-cli",
