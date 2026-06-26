@@ -7,12 +7,12 @@
 
 import { AnthropicVertex, ClientOptions } from "@anthropic-ai/vertex-sdk";
 import {
-  getApiProvider,
   type AnthropicOptions,
   type Api,
   type Model,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import { getApiProvider } from "@earendil-works/pi-ai/compat";
 import type {
   ExtensionAPI,
   ProviderModelConfig,
@@ -25,6 +25,7 @@ const MODELS = [
   {
     id: "claude-opus-4-6",
     name: "Claude Opus 4.6 (Vertex)",
+    compat: { forceAdaptiveThinking: true },
     reasoning: true,
     thinkingLevelMap: {
       off: "none",
@@ -47,6 +48,7 @@ const MODELS = [
   {
     id: "claude-opus-4-7",
     name: "Claude Opus 4.7 (Vertex)",
+    compat: { forceAdaptiveThinking: true, supportsTemperature: false },
     reasoning: true,
     thinkingLevelMap: {
       off: "none",
@@ -67,8 +69,32 @@ const MODELS = [
     maxTokens: 128000,
   },
   {
+    id: "claude-opus-4-8",
+    name: "Claude Opus 4.8 (Vertex)",
+    compat: { forceAdaptiveThinking: true, supportsTemperature: false },
+    reasoning: true,
+    thinkingLevelMap: {
+      off: "none",
+      minimal: "low",
+      low: "medium",
+      medium: "high",
+      high: "xhigh",
+      xhigh: "xhigh",
+    },
+    input: ["text", "image"],
+    cost: {
+      input: 5,
+      output: 25,
+      cacheRead: 0.5,
+      cacheWrite: 6.25,
+    },
+    contextWindow: 1000000,
+    maxTokens: 128000,
+  },
+  {
     id: "claude-sonnet-4-6",
     name: "Claude Sonnet 4.6 (Vertex)",
+    compat: { forceAdaptiveThinking: true },
     reasoning: true,
     thinkingLevelMap: {
       off: "none",

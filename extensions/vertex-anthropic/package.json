@@ -9,7 +9,15 @@
       "./index.ts"
     ]
   },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "dependencies": {
     "@anthropic-ai/vertex-sdk": "^0.16.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2"
   }
 }
