@@ -18,13 +18,15 @@ interface GoogleQuotaBucket {
 export interface Quota {
   name?: string;
   session: number;
-  weekly: number;
+  weekly?: number;
+  sessionLabel?: string;
+  weeklyLabel?: string;
   sessionResetsIn?: string;
   weeklyResetsIn?: string;
 }
 
 export interface ProviderUsage {
-  provider: "Claude" | "Codex" | "Gemini";
+  provider: "Claude" | "Codex" | "Codex Work" | "Gemini";
   quotas: Quota[];
   error?: string;
   debug?: string[];
@@ -109,14 +111,14 @@ export function readPercentCandidate(value: unknown): number | null {
   return null;
 }
 
-export async function fetchCodexUsage(token: string, includeDebug = false): Promise<ProviderUsage> {
+export async function fetchCodexUsage(token: string, includeDebug = false, provider: "Codex" | "Codex Work" = "Codex"): Promise<ProviderUsage> {
   const result = await requestJson(
     "https://chatgpt.com/backend-api/wham/usage",
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
   if (result.ok === false) {
-    return { provider: "Codex", quotas: [], error: result.error };
+    return { provider, quotas: [], error: result.error };
   }
 
   const data = result.data as any;
@@ -124,20 +126,26 @@ export async function fetchCodexUsage(token: string, includeDebug = false): Prom
   const secondary = data?.rate_limit?.secondary_window;
 
   const session = readPercentCandidate(primary?.used_percent) ?? 0;
-  const weekly = readPercentCandidate(secondary?.used_percent) ?? 0;
+  const weekly = secondary ? readPercentCandidate(secondary?.used_percent) ?? 0 : undefined;
+  const primaryWindowSeconds = typeof primary?.limit_window_seconds === "number" ? primary.limit_window_seconds : undefined;
+  const secondaryWindowSeconds = typeof secondary?.limit_window_seconds === "number" ? secondary.limit_window_seconds : undefined;
 
   return {
-    provider: "Codex",
+    provider,
     quotas: [{
       session,
       weekly,
+      sessionLabel: primaryWindowSeconds && primaryWindowSeconds >= 28 * 86400 ? "Monthly" : undefined,
+      weeklyLabel: secondaryWindowSeconds && secondaryWindowSeconds >= 28 * 86400 ? "Monthly" : undefined,
       sessionResetsIn: typeof primary?.reset_after_seconds === "number" ? formatDuration(primary.reset_after_seconds) : undefined,
       weeklyResetsIn: typeof secondary?.reset_after_seconds === "number" ? formatDuration(secondary.reset_after_seconds) : undefined,
     }],
     debug: includeDebug
       ? [
           `rate_limit.primary_window.used_percent=${String(primary?.used_percent)} => ${Math.round(session)}%`,
-          `rate_limit.secondary_window.used_percent=${String(secondary?.used_percent)} => ${Math.round(weekly)}%`,
+          `rate_limit.primary_window.limit_window_seconds=${String(primaryWindowSeconds)}`,
+          `rate_limit.secondary_window.used_percent=${String(secondary?.used_percent)} => ${weekly == null ? "n/a" : `${Math.round(weekly)}%`}`,
+          `rate_limit.secondary_window.limit_window_seconds=${String(secondaryWindowSeconds)}`,
         ]
       : undefined,
   };
@@ -368,9 +376,10 @@ function credentialAccessToken(credential: unknown): string | undefined {
 export async function fetchAllUsages(includeDebug = false): Promise<ProviderUsage[]> {
   const auth = AuthStorage.create();
 
-  const providers: { id: string; name: "Claude" | "Codex" | "Gemini" }[] = [
+  const providers: { id: string; name: "Claude" | "Codex" | "Codex Work" | "Gemini" }[] = [
     { id: "anthropic", name: "Claude" },
     { id: "openai-codex", name: "Codex" },
+    { id: "openai-codex-work", name: "Codex Work" },
     { id: "google-gemini-cli", name: "Gemini" },
   ];
 
@@ -380,7 +389,7 @@ export async function fetchAllUsages(includeDebug = false): Promise<ProviderUsag
       if (!token) return { provider: p.name, quotas: [], error: "not logged in" };
 
       if (p.id === "anthropic") return fetchClaudeUsage(token, includeDebug);
-      if (p.id === "openai-codex") return fetchCodexUsage(token, includeDebug);
+      if (p.id === "openai-codex" || p.id === "openai-codex-work") return fetchCodexUsage(token, includeDebug, p.name as "Codex" | "Codex Work");
 
       const credential = auth.get(p.id);
       const projectId = credentialProjectId(credential);

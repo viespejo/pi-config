@@ -99,24 +99,26 @@ class UsagePanelComponent {
     }
 
     for (const q of p.quotas) {
-      const dailyLabel = q.name ? `    ${q.name.padEnd(6)} ` : "    Daily  ";
+      const primaryTextLabel = q.name ?? q.sessionLabel ?? "Daily";
+      const primaryLabel = `    ${primaryTextLabel.padEnd(6)} `;
       const session = clampPercent(q.session);
       const sessionReset = q.sessionResetsIn ? t.fg("dim", ` (resets in ${q.sessionResetsIn})`) : "";
 
       this.container.addChild(new Text(
-        dailyLabel + renderBar(t, session) + " " +
+        primaryLabel + renderBar(t, session) + " " +
         t.fg(colorForPercent(session), `${session}%`.padStart(4)) +
         sessionReset,
         0, 0
       ));
 
-      // For Gemini model breakdown (Pro/Flash), keep a single clean line.
-      if (q.name) continue;
+      // For named model breakdowns (Pro/Flash), keep a single clean line.
+      if (q.name || q.weekly == null) continue;
 
       const weekly = clampPercent(q.weekly);
       const weeklyReset = q.weeklyResetsIn ? t.fg("dim", ` (resets in ${q.weeklyResetsIn})`) : "";
+      const weeklyLabel = `    ${(q.weeklyLabel ?? "Weekly").padEnd(6)} `;
       this.container.addChild(new Text(
-        "    Weekly " + renderBar(t, weekly) + " " +
+        weeklyLabel + renderBar(t, weekly) + " " +
         t.fg(colorForPercent(weekly), `${weekly}%`.padStart(4)) +
         weeklyReset,
         0, 0
@@ -157,7 +159,7 @@ class UsagePanelComponent {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("usage", {
-    description: "Display current subscription quotas for Claude, Codex, and Gemini (use: /usage --debug)",
+    description: "Display current subscription quotas for Claude, Codex, Codex Work, and Gemini (use: /usage --debug)",
     handler: async (args, ctx) => {
       if (!ctx?.hasUI) return;
       const { debug } = parseUsageArgs(args);
@@ -171,6 +173,7 @@ export default function (pi: ExtensionAPI) {
           component.setData([
             { provider: "Claude", quotas: [], error: String(err) },
             { provider: "Codex", quotas: [], error: String(err) },
+            { provider: "Codex Work", quotas: [], error: String(err) },
             { provider: "Gemini", quotas: [], error: String(err) }
           ]);
         });
