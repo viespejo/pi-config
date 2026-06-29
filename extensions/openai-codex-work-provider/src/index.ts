@@ -1,4 +1,4 @@
-import { createModels } from "@earendil-works/pi-ai";
+import { getModels } from "@earendil-works/pi-ai/compat";
 import { openaiCodexOAuthProvider } from "@earendil-works/pi-ai/oauth";
 import type {
   ExtensionAPI,
@@ -10,7 +10,7 @@ const PROVIDER_NAME = "ChatGPT Plus/Pro (Codex Work Subscription)";
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 export default function registerOpenAICodexWorkProvider(pi: ExtensionAPI): void {
-  const sourceModels = createModels().getModels("openai-codex");
+  const sourceModels = getModels("openai-codex");
   const models = sourceModels.map(
     (model): ProviderModelConfig => ({
       id: model.id,
