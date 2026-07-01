@@ -227,6 +227,64 @@ test("executePlanFlow routes completed execution logs to summary finalization", 
   assert.equal(calls.includes("sendUserMessage"), true);
 });
 
+test("executePlanFlow copies Claude Code prompt without starting PI execution", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
+  const plan = mkPlan(tmpDir);
+
+  const notifications: Array<[string, string]> = [];
+  const selects: Array<[string, string[]]> = [];
+  const calls: string[] = [];
+
+  const ctx = {
+    hasUI: true,
+    ui: {
+      notify: (msg: string, level: string) => notifications.push([msg, level]),
+      select: async (question: string, options: string[]) => {
+        selects.push([question, options]);
+        return "Copy Claude Code prompt to clipboard";
+      },
+      setWidget: () => {
+        calls.push("setWidget");
+      },
+    },
+    sessionManager: { getSessionFile: () => "s-1" },
+  } as any;
+
+  const pi = {
+    setSessionName: () => {},
+    getActiveTools: () => ["read", "bash", "edit", "write"],
+    setActiveTools: () => {},
+    appendEntry: () => {
+      calls.push("appendEntry");
+    },
+    sendUserMessage: () => {
+      calls.push("sendUserMessage");
+    },
+  } as any;
+
+  const planService = {
+    getPlansPath: () => tmpDir,
+    readPlan: async () => mkPlanContent(),
+    updatePlanStatus: async () => {
+      calls.push("updatePlanStatus");
+    },
+  } as any;
+
+  await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
+
+  assert.equal(selects.length, 1);
+  assert.equal(selects[0]?.[0], "/plan:execute · prompt delivery");
+  assert.equal(selects[0]?.[1].includes("Copy Claude Code prompt to clipboard"), true);
+  assert.equal(calls.includes("appendEntry"), false);
+  assert.equal(calls.includes("setWidget"), false);
+  assert.equal(calls.includes("updatePlanStatus"), false);
+  assert.equal(calls.includes("sendUserMessage"), false);
+  assert.equal(
+    notifications.some(([m, level]) => level === "info" && m === "Claude Code prompt copied to clipboard"),
+    true,
+  );
+});
+
 test("executePlanFlow blocks on incoherent execution logs", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
   const plan = mkPlan(tmpDir);

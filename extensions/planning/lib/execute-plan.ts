@@ -10,6 +10,8 @@ import {
 import { checkDependencies, findDependencyCycle } from "./dependencies.ts";
 import { PlanError } from "./errors.ts";
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PlanInfo } from "./types.ts";
 import {
   createPlanExecutionWidget,
@@ -28,6 +30,7 @@ import {
   deactivatePlanLogTool,
   PLAN_EXECUTION_CONTEXT_ENTRY_TYPE,
 } from "./plan-execution-runtime.ts";
+import { buildClaudeCodeStrictApplyExecutePrompt } from "./prompts/execute-plan-claude-code-prompt.ts";
 
 interface ParsedPlanTask {
   id?: string;
@@ -140,12 +143,15 @@ export async function executePlanFlow(
   const resumeContext = `\n\n<runtime_resume_instruction>${resumeInstruction}</runtime_resume_instruction>`;
 
   let finalPrompt = `${executePrompt}\n\n<plan>\n${planContent}\n</plan>\n\n<plan_filename>${plan.filename}</plan_filename>${resumeContext}`;
+  const extensionRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const executionLogCliCommand = `${process.execPath} ${path.join(extensionRoot, "bin", "planning-log.mjs")}`;
 
   if (ctx.hasUI) {
     const choice = await ctx.ui.select("/plan:execute · prompt delivery", [
       "Send now",
       "Preview/edit before sending",
       "Copy prompt to clipboard",
+      "Copy Claude Code prompt to clipboard",
       "Cancel",
     ]);
 
@@ -183,6 +189,25 @@ export async function executePlanFlow(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(`Failed to copy prompt: ${message}`, "error");
+      }
+      return;
+    }
+
+    if (choice === "Copy Claude Code prompt to clipboard") {
+      const claudePrompt = `${buildClaudeCodeStrictApplyExecutePrompt({
+        summaryTemplateReferencePath: path.join(extensionRoot, "lib", "references", "summary-template.md"),
+        executionLogPath,
+        executionLogCliCommand,
+        allowedTaskIds: taskIds,
+      })}\n\n<plan>\n${planContent}\n</plan>\n\n<plan_filename>${plan.filename}</plan_filename>${resumeContext}`;
+
+      try {
+        copyToClipboard(claudePrompt);
+        deactivatePlanLogTool(pi);
+        ctx.ui.notify("Claude Code prompt copied to clipboard", "info");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Failed to copy Claude Code prompt: ${message}`, "error");
       }
       return;
     }
