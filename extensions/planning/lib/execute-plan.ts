@@ -81,10 +81,6 @@ export async function executePlanFlow(
     return;
   }
 
-  if (planTitle) {
-    pi.setSessionName(planTitle);
-  }
-
   const currentSessionId = sessionIdFromContext(ctx);
   const planContent = await planService.readPlan(plan.path);
 
@@ -211,6 +207,10 @@ export async function executePlanFlow(
       }
       return;
     }
+  }
+
+  if (planTitle) {
+    pi.setSessionName(planTitle);
   }
 
   const executionContext = {

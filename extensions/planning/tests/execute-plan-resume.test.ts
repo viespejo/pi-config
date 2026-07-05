@@ -251,7 +251,9 @@ test("executePlanFlow copies Claude Code prompt without starting PI execution", 
   } as any;
 
   const pi = {
-    setSessionName: () => {},
+    setSessionName: () => {
+      calls.push("setSessionName");
+    },
     getActiveTools: () => ["read", "bash", "edit", "write"],
     setActiveTools: () => {},
     appendEntry: () => {
@@ -275,6 +277,7 @@ test("executePlanFlow copies Claude Code prompt without starting PI execution", 
   assert.equal(selects.length, 1);
   assert.equal(selects[0]?.[0], "/plan:execute · prompt delivery");
   assert.equal(selects[0]?.[1].includes("Copy Claude Code prompt to clipboard"), true);
+  assert.equal(calls.includes("setSessionName"), false);
   assert.equal(calls.includes("appendEntry"), false);
   assert.equal(calls.includes("setWidget"), false);
   assert.equal(calls.includes("updatePlanStatus"), false);
