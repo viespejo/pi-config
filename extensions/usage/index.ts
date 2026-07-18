@@ -167,7 +167,7 @@ export default function (pi: ExtensionAPI) {
       await ctx.ui.custom<void>((tui, theme, _kb, done) => {
         const component = new UsagePanelComponent(tui, theme, done, debug);
 
-        fetchAllUsages(true).then(data => {
+        fetchAllUsages(ctx, true).then(data => {
           component.setData(data);
         }).catch(err => {
           component.setData([

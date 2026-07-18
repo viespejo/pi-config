@@ -1,4 +1,7 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 interface GoogleQuotaBucket {
   modelId?: unknown;
@@ -361,50 +364,93 @@ export async function fetchGoogleUsage(token: string, projectId?: string, includ
   return { provider: "Gemini", quotas, debug };
 }
 
+export interface GeminiApiKeyPayload {
+  token: string;
+  projectId?: string;
+}
+
+export function parseGeminiApiKey(apiKey: string | undefined): GeminiApiKeyPayload {
+  if (!apiKey) {
+    throw new Error("Google Gemini CLI authentication is unavailable.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(apiKey);
+  } catch {
+    throw new Error("Invalid Google Gemini CLI authentication payload.");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Invalid Google Gemini CLI authentication payload.");
+  }
+
+  const token = (parsed as { token?: unknown }).token;
+  const projectId = (parsed as { projectId?: unknown }).projectId;
+  if (typeof token !== "string" || !token) {
+    throw new Error("Missing token in Google Gemini CLI authentication payload.");
+  }
+
+  return {
+    token,
+    ...(typeof projectId === "string" && projectId ? { projectId } : {}),
+  };
+}
+
+export type StoredCredentialReader = (providerId: string) => unknown;
+
+export function readStoredCredential(providerId: string): unknown {
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+  try {
+    const data = JSON.parse(readFileSync(join(agentDir, "auth.json"), "utf8"));
+    return data?.[providerId];
+  } catch {
+    return undefined;
+  }
+}
+
 function credentialProjectId(credential: unknown): string | undefined {
   if (!credential || typeof credential !== "object") return undefined;
   const maybe = credential as { projectId?: unknown };
   return typeof maybe.projectId === "string" && maybe.projectId ? maybe.projectId : undefined;
 }
 
-function credentialAccessToken(credential: unknown): string | undefined {
-  if (!credential || typeof credential !== "object") return undefined;
-  const maybe = credential as { access?: unknown };
-  return typeof maybe.access === "string" && maybe.access ? maybe.access : undefined;
-}
-
-export async function fetchAllUsages(includeDebug = false): Promise<ProviderUsage[]> {
-  const auth = AuthStorage.create();
-
+export async function fetchAllUsages(
+  ctx: ExtensionContext,
+  includeDebug = false,
+  readCredential: StoredCredentialReader = readStoredCredential,
+): Promise<ProviderUsage[]> {
   const providers: { id: string; name: "Claude" | "Codex" | "Codex Work" | "Gemini" }[] = [
     { id: "anthropic", name: "Claude" },
     { id: "openai-codex", name: "Codex" },
     { id: "openai-codex-work", name: "Codex Work" },
     { id: "google-gemini-cli", name: "Gemini" },
   ];
+  const availableModels = ctx.modelRegistry.getAvailable();
 
   const tasks = providers.map(async (p): Promise<ProviderUsage> => {
     try {
-      const token = await auth.getApiKey(p.id);
-      if (!token) return { provider: p.name, quotas: [], error: "not logged in" };
-
-      if (p.id === "anthropic") return fetchClaudeUsage(token, includeDebug);
-      if (p.id === "openai-codex" || p.id === "openai-codex-work") return fetchCodexUsage(token, includeDebug, p.name as "Codex" | "Codex Work");
-
-      const credential = auth.get(p.id);
-      const projectId = credentialProjectId(credential);
-      const usage = await fetchGoogleUsage(token, projectId, includeDebug);
-
-      // Defensive fallback: if refreshed token fails but stored access still works,
-      // retry once with raw credential access token.
-      if (usage.error?.includes("HTTP 401")) {
-        const fallbackToken = credentialAccessToken(credential);
-        if (fallbackToken && fallbackToken !== token) {
-          return fetchGoogleUsage(fallbackToken, projectId, includeDebug);
-        }
+      const model = availableModels.find((candidate) => candidate.provider === p.id);
+      if (!model) {
+        return { provider: p.name, quotas: [], error: `${p.name} provider unavailable: no registered model is available` };
       }
 
-      return usage;
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+      if (!auth.ok) {
+        return { provider: p.name, quotas: [], error: auth.error };
+      }
+      if (!auth.apiKey) {
+        return { provider: p.name, quotas: [], error: `${p.name} authentication unavailable` };
+      }
+
+      if (p.id === "anthropic") return fetchClaudeUsage(auth.apiKey, includeDebug);
+      if (p.id === "openai-codex" || p.id === "openai-codex-work") {
+        return fetchCodexUsage(auth.apiKey, includeDebug, p.name as "Codex" | "Codex Work");
+      }
+
+      const resolved = parseGeminiApiKey(auth.apiKey);
+      const storedProjectId = resolved.projectId ? undefined : credentialProjectId(readCredential(p.id));
+      return fetchGoogleUsage(resolved.token, resolved.projectId || storedProjectId, includeDebug);
     } catch (err) {
       return { provider: p.name, quotas: [], error: toErrorMessage(err) };
     }
