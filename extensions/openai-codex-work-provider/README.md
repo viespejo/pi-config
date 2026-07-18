@@ -44,3 +44,34 @@ The built-in provider remains available as:
 ```text
 /model openai-codex/gpt-5.5
 ```
+
+## OAuth export maintenance
+
+This extension relies on a private, Linux-only customization of Pi's installed
+OAuth entry point. It is not an upstream Pi API. The patch re-exports Pi's own
+OpenAI Codex OAuth implementation so that the Work provider can preserve its
+separate credential namespace without copying the OAuth protocol.
+
+Use Node.js 22.19.0 or later. Run these commands from the repository root:
+
+```bash
+npm run pi:patch:local
+npm run pi:patch:local:check
+npm run pi:patch:global
+npm run pi:patch:global:check
+npm run pi:update:global
+```
+
+The local commands affect only this repository's installed Pi dependency. The
+global commands affect only the effective `pi` executable on `PATH`.
+`pi:update:global` runs Pi's self-update and then reapplies the global patch.
+It does not update or inspect the local installation.
+
+Pi or npm updates can replace the managed OAuth export. After either update,
+run the appropriate apply command followed by its check command. If the
+extension reports that the managed export is missing, use `pi:patch:local` for
+a repository-local Pi run or `pi:patch:global` for the global Pi installation.
+
+Existing `openai-codex-work` credentials remain separate from the built-in
+provider and are preserved by this maintenance workflow. Reauthenticate only
+if OpenAI rejects the stored refresh credential.

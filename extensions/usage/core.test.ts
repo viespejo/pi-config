@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { fetchAllUsages } from "./core.ts";
+import { fetchAllUsages, fetchCodexUsage } from "./core.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -45,6 +45,31 @@ function quotaResponse() {
     }),
   } as Response;
 }
+
+test("labels a single seven-day Codex window as Weekly", async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      rate_limit: {
+        primary_window: {
+          used_percent: 25,
+          limit_window_seconds: 604800,
+          reset_after_seconds: 3600,
+        },
+      },
+    }),
+  }) as Response;
+
+  const usage = await fetchCodexUsage("token");
+  assert.deepEqual(usage.quotas, [{
+    session: 25,
+    weekly: undefined,
+    sessionLabel: "Weekly",
+    weeklyLabel: undefined,
+    sessionResetsIn: "1h",
+    weeklyResetsIn: undefined,
+  }]);
+});
 
 test("resolves active runtime auth for every usage provider", async () => {
   const requests: { url: string; authorization: string; body: string }[] = [];

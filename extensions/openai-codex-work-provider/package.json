@@ -9,6 +9,7 @@
     ]
   },
   "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
     "check": "tsc --noEmit"
   },
   "peerDependencies": {
@@ -16,8 +17,8 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.2",
-    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
     "@types/node": "^24.7.0",
     "typescript": "^5.9.3"
   }

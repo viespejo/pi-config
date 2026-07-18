@@ -114,6 +114,13 @@ export function readPercentCandidate(value: unknown): number | null {
   return null;
 }
 
+function codexWindowLabel(windowSeconds: number | undefined): string | undefined {
+  if (!windowSeconds) return undefined;
+  if (windowSeconds >= 28 * 86400) return "Monthly";
+  if (windowSeconds >= 6 * 86400) return "Weekly";
+  return undefined;
+}
+
 export async function fetchCodexUsage(token: string, includeDebug = false, provider: "Codex" | "Codex Work" = "Codex"): Promise<ProviderUsage> {
   const result = await requestJson(
     "https://chatgpt.com/backend-api/wham/usage",
@@ -138,8 +145,8 @@ export async function fetchCodexUsage(token: string, includeDebug = false, provi
     quotas: [{
       session,
       weekly,
-      sessionLabel: primaryWindowSeconds && primaryWindowSeconds >= 28 * 86400 ? "Monthly" : undefined,
-      weeklyLabel: secondaryWindowSeconds && secondaryWindowSeconds >= 28 * 86400 ? "Monthly" : undefined,
+      sessionLabel: codexWindowLabel(primaryWindowSeconds),
+      weeklyLabel: codexWindowLabel(secondaryWindowSeconds),
       sessionResetsIn: typeof primary?.reset_after_seconds === "number" ? formatDuration(primary.reset_after_seconds) : undefined,
       weeklyResetsIn: typeof secondary?.reset_after_seconds === "number" ? formatDuration(secondary.reset_after_seconds) : undefined,
     }],

@@ -8,7 +8,12 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:planning": "tsc -p extensions/planning/tsconfig.json --noEmit"
+    "typecheck:planning": "tsc -p extensions/planning/tsconfig.json --noEmit",
+    "pi:patch:local": "node scripts/pi-oauth-export-patch.mjs local apply",
+    "pi:patch:local:check": "node scripts/pi-oauth-export-patch.mjs local check",
+    "pi:patch:global": "node scripts/pi-oauth-export-patch.mjs global apply",
+    "pi:patch:global:check": "node scripts/pi-oauth-export-patch.mjs global check",
+    "pi:update:global": "node scripts/pi-oauth-export-patch.mjs global update"
   },
   "keywords": [
     "pi",
