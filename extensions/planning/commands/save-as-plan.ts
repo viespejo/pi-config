@@ -164,6 +164,9 @@ Naming: If this is the first interaction, generate a unique filename with a temp
 
 Efficiency: DO NOT read the full artifacts every turn just to append to them (neither using the \`read\` tool nor \`cat\` in bash). Rely on your context window and target edits based on your memory.
 Read-on-Demand: You ARE PERMITTED and encouraged to \`read\` the Consolidated Plan if you detect ambiguity, contradiction, or if you need to review critical past dependencies to formulate the next question.
+Decision Log append-only: append with a single heredoc using \`bash\` (cat >> ...) when only appending is needed. Usually decisions are append-only, but if a decision is superseded or we explicitly need to edit a previous entry, we can surgically edit the log using \`edit\` tool.
+Consolidated Plan: append with \`bash\` if it is truly additive; \`edit\` for surgical substitutions.
+Both changes are append: group them in a single \`bash\` call.
 </tool_usage>
 
 <artifact_schemas required_only_if="persistence_mode_active">
