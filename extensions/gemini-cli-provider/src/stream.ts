@@ -678,7 +678,11 @@ export function streamGeminiCli(
       }
 
       if (!hasContent) throw new Error("Cloud Code Assist API returned an empty stream.");
-      if (output.stopReason === "error" || output.stopReason === "aborted") {
+      if (
+        output.stopReason === "error" ||
+        output.stopReason === "aborted" ||
+        output.stopReason === "pending"
+      ) {
         throw new Error("Cloud Code Assist API returned a non-success stop reason.");
       }
 
