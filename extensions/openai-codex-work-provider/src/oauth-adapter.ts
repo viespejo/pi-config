@@ -1,8 +1,9 @@
-import type { OAuthAuth, OAuthCredential } from "@earendil-works/pi-ai";
 import type {
+  OAuthAuth,
+  OAuthCredential,
   OAuthCredentials,
   OAuthLoginCallbacks,
-} from "@earendil-works/pi-ai/oauth";
+} from "@earendil-works/pi-ai";
 
 export interface OpenAICodexOAuth {
   login(interaction: OAuthInteraction): Promise<OAuthCredential>;

@@ -45,33 +45,24 @@ The built-in provider remains available as:
 /model openai-codex/gpt-5.5
 ```
 
-## OAuth export maintenance
+## Pi compatibility
 
-This extension relies on a private, Linux-only customization of Pi's installed
-OAuth entry point. It is not an upstream Pi API. The patch re-exports Pi's own
-OpenAI Codex OAuth implementation so that the Work provider can preserve its
-separate credential namespace without copying the OAuth protocol.
+The extension reuses Pi's built-in OpenAI Codex OAuth provider through the
+public `builtinProviders()` API. It does not copy the OAuth protocol and does
+not modify files inside Pi or `node_modules`.
 
-Use Node.js 22.19.0 or later. Run these commands from the repository root:
+Pi 0.84.4 or later and Node.js 22.19.0 or later are required. Validate the
+extension package after updating Pi or its dependencies:
 
 ```bash
-npm run pi:patch:local
-npm run pi:patch:local:check
-npm run pi:patch:global
-npm run pi:patch:global:check
-npm run pi:update:global
+npm --prefix extensions/openai-codex-work-provider test
+npm --prefix extensions/openai-codex-work-provider run check
 ```
 
-The local commands affect only this repository's installed Pi dependency. The
-global commands affect only the effective `pi` executable on `PATH`.
-`pi:update:global` runs Pi's self-update and then reapplies the global patch.
-It does not update or inspect the local installation.
-
-Pi or npm updates can replace the managed OAuth export. After either update,
-run the appropriate apply command followed by its check command. If the
-extension reports that the managed export is missing, use `pi:patch:local` for
-a repository-local Pi run or `pi:patch:global` for the global Pi installation.
+Pi updates can change the built-in provider API. If the extension reports that
+Pi's built-in OpenAI Codex OAuth support is unavailable, use a compatible Pi
+version before retrying. No OAuth login is required unless OpenAI rejects the
+stored refresh credential.
 
 Existing `openai-codex-work` credentials remain separate from the built-in
-provider and are preserved by this maintenance workflow. Reauthenticate only
-if OpenAI rejects the stored refresh credential.
+provider because Pi stores credentials by provider ID.
