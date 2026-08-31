@@ -1,4 +1,4 @@
-import { completeSimple, type UserMessage } from "@earendil-works/pi-ai";
+import { type UserMessage } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -253,7 +253,7 @@ export async function generateBashExplanation(params: {
     const reasoning = model.reasoning ? "minimal" : undefined;
 
     try {
-      const response = await completeSimple(
+      const response = await params.ctx.modelRegistry.complete(
         model,
         {
           systemPrompt: EXPLAIN_SYSTEM_PROMPT,
@@ -284,17 +284,7 @@ export async function generateBashExplanation(params: {
         };
       }
 
-      const risks = normalizeList(parsed.risks, 4);
-      if (!risks) {
-        return {
-          ok: false,
-          error: {
-            code: "invalid-shape",
-            message: "Explainer JSON missing non-empty risks.",
-          },
-        };
-      }
-
+      const risks = normalizeList(parsed.risks, 4) ?? [];
       const flags = normalizeList(parsed.flags, 4);
 
       return {
