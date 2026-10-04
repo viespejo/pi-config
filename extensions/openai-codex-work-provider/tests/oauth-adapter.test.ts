@@ -7,6 +7,7 @@ import {
 } from "../src/oauth-adapter.ts";
 
 const credentials = {
+  type: "oauth" as const,
   access: "access-token",
   refresh: "refresh-token",
   expires: 123,

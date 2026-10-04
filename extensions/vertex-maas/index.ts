@@ -4,19 +4,23 @@
  * Reuses pi's native "openai-completions" provider and injects Google access tokens.
  */
 
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
-  getApiProvider,
+  lazyStream,
   type Api,
   type Model,
+  type ProviderEnv,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import { getApiProvider } from "@earendil-works/pi-ai/compat";
 import type {
   ExtensionAPI,
   ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_REGION = "global";
+const execFileAsync = promisify(execFile);
 
 const MODELS = [
   {
@@ -108,38 +112,60 @@ export default function (pi: ExtensionAPI) {
       context,
       options?: SimpleStreamOptions,
     ) => {
-      try {
-        const accessToken = getAccessToken();
-        const modelWithEndpoint: Model<Api> = {
-          ...model,
-          baseUrl,
-        };
+      return lazyStream(model, async () => {
+        try {
+          const requestProject =
+            options?.env?.GOOGLE_CLOUD_PROJECT ||
+            options?.env?.GCLOUD_PROJECT ||
+            project;
+          const requestRegion =
+            options?.env?.GOOGLE_CLOUD_LOCATION ||
+            options?.env?.CLOUD_ML_REGION ||
+            region;
+          const requestBaseUrl = `https://aiplatform.googleapis.com/v1/projects/${requestProject}/locations/${requestRegion}/endpoints/openapi`;
+          const accessToken = await getAccessToken(options?.env, options?.signal);
+          const modelWithEndpoint: Model<Api> = {
+            ...model,
+            baseUrl: requestBaseUrl,
+          };
 
-        return openaiCompletionsApi.streamSimple(modelWithEndpoint, context, {
-          ...options,
-          apiKey: accessToken,
-        });
-      } catch (error) {
-        console.error(`Vertex MAAS streamSimple failed: ${String(error)}`);
-        throw error;
-      }
+          return openaiCompletionsApi.streamSimple(modelWithEndpoint, context, {
+            ...options,
+            apiKey: accessToken,
+          });
+        } catch (error) {
+          console.error(`Vertex MAAS streamSimple failed: ${String(error)}`);
+          throw error;
+        }
+      });
     },
   });
 }
 
-function getAccessToken(): string {
+async function getAccessToken(
+  env?: ProviderEnv,
+  signal?: AbortSignal,
+): Promise<string> {
   const envToken =
-    process.env.GOOGLE_OAUTH_ACCESS_TOKEN || process.env.VERTEX_ACCESS_TOKEN;
+    env?.GOOGLE_OAUTH_ACCESS_TOKEN ||
+    env?.VERTEX_ACCESS_TOKEN ||
+    process.env.GOOGLE_OAUTH_ACCESS_TOKEN ||
+    process.env.VERTEX_ACCESS_TOKEN;
   if (envToken && envToken.trim()) {
     return envToken.trim();
   }
 
   try {
-    const token = execSync("gcloud auth print-access-token", {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5000,
-    }).trim();
+    const { stdout } = await execFileAsync(
+      "gcloud",
+      ["auth", "print-access-token"],
+      {
+        encoding: "utf8",
+        timeout: 5000,
+        signal,
+      },
+    );
+    const token = stdout.trim();
 
     if (!token) {
       throw new Error("empty token");

@@ -1,7 +1,9 @@
 {
   "name": "pi-vertex-anthropic",
+  "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "pi": {
@@ -17,7 +19,9 @@
     "@anthropic-ai/vertex-sdk": "^0.16.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.2",
-    "@earendil-works/pi-coding-agent": "^0.80.2"
+    "@earendil-works/pi-ai": "1.0.2",
+    "@earendil-works/pi-coding-agent": "1.0.2",
+    "@types/node": "^24.7.0",
+    "typescript": "^5.9.3"
   }
 }

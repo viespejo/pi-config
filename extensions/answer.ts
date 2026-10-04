@@ -10,7 +10,8 @@
  * 4. Submits the compiled answers when done
  */
 
-import { completeSimple, type UserMessage } from "@earendil-works/pi-ai";
+import type { UserMessage } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -132,9 +133,11 @@ class QnAComponent implements Component {
     const editorTheme: EditorTheme = {
       borderColor: this.dim,
       selectList: {
-        selectedBg: (s: string) => `\x1b[44m${s}\x1b[0m`,
-        matchHighlight: this.cyan,
-        itemSecondary: this.gray,
+        selectedPrefix: this.cyan,
+        selectedText: (s: string) => `\x1b[44m${s}\x1b[0m`,
+        description: this.gray,
+        scrollInfo: this.dim,
+        noMatch: this.yellow,
       },
     };
 
@@ -453,7 +456,7 @@ export default function (pi: ExtensionAPI) {
 
     const extractionModel = preferredModel ?? ctx.model;
     const extractionReasoning = extractionModel.reasoning
-      ? "minimal"
+      ? ("minimal" as const)
       : undefined;
     const extractionEffort = extractionReasoning ?? "off";
 

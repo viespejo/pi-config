@@ -1,15 +1,18 @@
+import * as piAi from "@earendil-works/pi-ai";
 import {
   type AssistantMessage,
   type AssistantMessageEventStream,
   calculateCost,
   createAssistantMessageEventStream,
-  type Context,
   type Api,
+  type JsonObject,
+  type JsonValue,
   type Model,
   type SimpleStreamOptions,
   type TextContent,
   type ThinkingContent,
   type ToolCall,
+  type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import {
   createUnsupportedModelError,
@@ -48,7 +51,7 @@ interface GeminiCliChunk {
           functionCall?: {
             id?: string;
             name?: string;
-            args?: Record<string, unknown>;
+            args?: unknown;
           };
         }>;
       };
@@ -246,7 +249,49 @@ function resolveThoughtSignature(isSameProviderAndModel: boolean, signature: str
   return isSameProviderAndModel && isValidThoughtSignature(signature) ? signature : undefined;
 }
 
-function convertContext(model: Model<Api>, context: Context): GeminiCliRequest["request"]["contents"] {
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return true;
+  }
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  if (typeof value !== "object") return false;
+  return Object.values(value).every(isJsonValue);
+}
+
+function asJsonObject(value: unknown): JsonObject {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !isJsonValue(value)) return {};
+  return value as JsonObject;
+}
+
+function getCurrentSystemPrompt(context: TranscriptContext): string {
+  const helper = (piAi as typeof piAi & {
+    getCurrentSystemPrompt?: (messages: TranscriptContext["messages"]) => string;
+  }).getCurrentSystemPrompt;
+  if (helper) return helper(context.messages);
+  return (context as TranscriptContext & { systemPrompt?: string }).systemPrompt ?? "";
+}
+
+function getCurrentTools(context: TranscriptContext) {
+  const helper = (piAi as typeof piAi & {
+    getCurrentTools?: (messages: TranscriptContext["messages"]) => NonNullable<Parameters<typeof buildToolDeclarations>[0]>;
+  }).getCurrentTools;
+  if (helper) return helper(context.messages);
+  return (context as TranscriptContext & { tools?: NonNullable<Parameters<typeof buildToolDeclarations>[0]> }).tools ?? [];
+}
+
+function buildToolDeclarations(tools: Array<{ name: string; description: string; parameters: unknown }> | undefined) {
+  return tools?.map((tool) => ({
+    functionDeclarations: [
+      {
+        name: tool.name,
+        description: tool.description,
+        parametersJsonSchema: tool.parameters,
+      },
+    ],
+  }));
+}
+
+function convertContext(model: Model<Api>, context: TranscriptContext): GeminiCliRequest["request"]["contents"] {
   const contents: GeminiCliRequest["request"]["contents"] = [];
   const gemini3 = isGemini3ModelId(model.id);
   let pendingToolResponses: Array<Record<string, unknown>> = [];
@@ -343,7 +388,7 @@ function convertContext(model: Model<Api>, context: Context): GeminiCliRequest["
   return contents;
 }
 
-function buildRequest(model: Model<Api>, context: Context, options: SimpleStreamOptions, projectId: string): GeminiCliRequest {
+function buildRequest(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions, projectId: string): GeminiCliRequest {
   const thinkingLevel = toThinkingLevel(model.id, options.reasoning);
   const generationConfig: GeminiCliRequest["request"]["generationConfig"] = {};
   if (typeof options.maxTokens === "number") generationConfig.maxOutputTokens = options.maxTokens;
@@ -357,22 +402,15 @@ function buildRequest(model: Model<Api>, context: Context, options: SimpleStream
     generationConfig.thinkingConfig = getDisabledThinkingConfig(model.id);
   }
 
-  const tools = context.tools?.map((tool) => ({
-    functionDeclarations: [
-      {
-        name: tool.name,
-        description: tool.description,
-        parametersJsonSchema: tool.parameters,
-      },
-    ],
-  }));
+  const tools = buildToolDeclarations(getCurrentTools(context));
+  const systemPrompt = getCurrentSystemPrompt(context);
 
   return {
     project: projectId,
     model: model.id,
     request: {
       contents: convertContext(model, context),
-      ...(context.systemPrompt ? { systemInstruction: { parts: [{ text: sanitizeSurrogates(context.systemPrompt) }] } } : {}),
+      ...(systemPrompt ? { systemInstruction: { parts: [{ text: sanitizeSurrogates(systemPrompt) }] } } : {}),
       ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
       ...(tools && tools.length > 0 ? { tools } : {}),
     },
@@ -381,7 +419,7 @@ function buildRequest(model: Model<Api>, context: Context, options: SimpleStream
 
 export function streamGeminiCli(
   model: Model<Api>,
-  context: Context,
+  context: TranscriptContext,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
@@ -401,7 +439,7 @@ export function streamGeminiCli(
         totalTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
-      stopReason: "stop",
+      stopReason: "pending",
       timestamp: Date.now(),
     };
 
@@ -409,7 +447,7 @@ export function streamGeminiCli(
       validateGeminiCliModel(model);
       const credentials = parseGeminiCliApiKey(options?.apiKey);
       const requestBody = buildRequest(model, context, options ?? {}, credentials.projectId);
-      const requestHeaders = {
+      const requestHeaders: Record<string, string> = {
         Authorization: `Bearer ${credentials.token}`,
         "Content-Type": "application/json",
         Accept: "text/event-stream",
@@ -421,30 +459,39 @@ export function streamGeminiCli(
           pluginType: "GEMINI",
         }),
       };
+      for (const [name, value] of Object.entries(options?.headers ?? {})) {
+        const existing = Object.keys(requestHeaders).find((key) => key.toLowerCase() === name.toLowerCase());
+        if (existing) delete requestHeaders[existing];
+        if (value !== null) requestHeaders[name] = value;
+      }
+
       const requestUrl = `${GEMINI_CLI_BASE_URL}/v1internal:streamGenerateContent?alt=sse`;
+      const fetchFn = options?.fetch ?? globalThis.fetch;
+      const performRequest = async (): Promise<Response> => {
+        const replacement = await options?.onPayload?.(requestBody, model);
+        const payload = replacement === undefined ? requestBody : replacement;
+        const result = await fetchFn(requestUrl, {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify(payload),
+          signal: options?.signal,
+        });
+        await options?.onResponse?.(
+          {
+            status: result.status,
+            headers: Object.fromEntries(result.headers.entries()),
+          },
+          model,
+        );
+        return result;
+      };
 
       let response: Response | undefined;
       let lastError: Error | undefined;
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (options?.signal?.aborted) throw new Error("Request was aborted.");
         try {
-          response = await fetch(requestUrl, {
-            method: "POST",
-            headers: requestHeaders,
-            body: JSON.stringify(requestBody),
-            signal: options?.signal,
-          });
-
-          if (response.ok) break;
-
-          const errorText = await response.text();
-          if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
-            const delay = extractRetryDelay(errorText, response) ?? BASE_DELAY_MS * 2 ** attempt;
-            await sleep(delay, options?.signal);
-            continue;
-          }
-
-          throw new Error(`Cloud Code Assist API error (${response.status}): ${extractErrorMessage(errorText)}`);
+          response = await performRequest();
         } catch (error) {
           if (error instanceof Error && (error.name === "AbortError" || error.message === "Request was aborted.")) {
             throw new Error("Request was aborted.");
@@ -456,6 +503,17 @@ export function streamGeminiCli(
           }
           throw lastError;
         }
+
+        if (response.ok) break;
+
+        const errorText = await response.text();
+        if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
+          const delay = extractRetryDelay(errorText, response) ?? BASE_DELAY_MS * 2 ** attempt;
+          await sleep(delay, options?.signal);
+          continue;
+        }
+
+        throw new Error(`Cloud Code Assist API error (${response.status}): ${extractErrorMessage(errorText)}`);
       }
 
       if (!response?.ok) {
@@ -468,6 +526,7 @@ export function streamGeminiCli(
         stream.push({ type: "start", partial: output });
         started = true;
       };
+      ensureStarted();
 
       const streamResponse = async (activeResponse: Response): Promise<boolean> => {
         if (!activeResponse.body) throw new Error("Cloud Code Assist API returned no response body.");
@@ -533,6 +592,7 @@ export function streamGeminiCli(
               } catch {
                 continue;
               }
+              await options?.onProviderStreamEvent?.(chunk, model);
 
               const candidate = chunk.response?.candidates?.[0];
               if (chunk.response?.responseId) {
@@ -602,7 +662,7 @@ export function streamGeminiCli(
                     existing.name = part.functionCall.name || existing.name;
                     existing.arguments = {
                       ...existing.arguments,
-                      ...(part.functionCall.args || {}),
+                      ...asJsonObject(part.functionCall.args),
                     };
                     if (part.thoughtSignature) {
                       existing.thoughtSignature = part.thoughtSignature;
@@ -659,18 +719,12 @@ export function streamGeminiCli(
             totalTokens: 0,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
           };
-          output.stopReason = "stop";
+          output.stopReason = "pending";
           output.errorMessage = undefined;
           output.timestamp = Date.now();
-          started = false;
 
           await sleep(EMPTY_STREAM_BASE_DELAY_MS * 2 ** i, options?.signal);
-          activeResponse = await fetch(requestUrl, {
-            method: "POST",
-            headers: requestHeaders,
-            body: JSON.stringify(requestBody),
-            signal: options?.signal,
-          });
+          activeResponse = await performRequest();
           if (!activeResponse.ok) {
             throw new Error(`Cloud Code Assist API error (${activeResponse.status}): ${await activeResponse.text()}`);
           }

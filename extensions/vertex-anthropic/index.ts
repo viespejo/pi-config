@@ -5,7 +5,7 @@
  * Integrates logic from CodeCompanion adapter for correct Vertex payload handling.
  */
 
-import { AnthropicVertex, ClientOptions } from "@anthropic-ai/vertex-sdk";
+import { AnthropicVertex, type ClientOptions } from "@anthropic-ai/vertex-sdk";
 import {
   type AnthropicOptions,
   type Api,
@@ -151,7 +151,23 @@ export default function (pi: ExtensionAPI) {
       context,
       options?: SimpleStreamOptions,
     ) => {
-      const clientOptions: ClientOptions = { projectId: project, region };
+      const requestProject =
+        options?.env?.GOOGLE_CLOUD_PROJECT ||
+        options?.env?.GCLOUD_PROJECT ||
+        project;
+      const requestRegion =
+        options?.env?.GOOGLE_CLOUD_LOCATION ||
+        options?.env?.CLOUD_ML_REGION ||
+        region;
+      const clientOptions: ClientOptions = {
+        projectId: requestProject,
+        region: requestRegion,
+        ...(options?.fetch ? { fetch: options.fetch } : {}),
+        ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+        ...(options?.maxRetries !== undefined
+          ? { maxRetries: options.maxRetries }
+          : {}),
+      };
 
       // Claude 3.x models sometimes need specific headers, but Vertex SDK
       // handles most of the "anthropic-version" logic.
@@ -188,13 +204,9 @@ function mapToAnthropicOptions(
   const baseMaxTokens =
     options?.maxTokens ?? getDefaultMaxTokens(model.maxTokens, maxTokensCap);
   const baseOptions: AnthropicOptions = {
+    ...options,
     client: client as any,
     maxTokens: baseMaxTokens,
-    temperature: options?.temperature,
-    signal: options?.signal,
-    cacheRetention: options?.cacheRetention,
-    sessionId: options?.sessionId,
-    headers: options?.headers,
     ...buildThinkingOptions(options, model),
   };
 
