@@ -131,6 +131,32 @@ describe("gemini-cli dedicated stream", () => {
     expect(request.request.tools[0].functionDeclarations[0].name).toBe("audit_tool");
   });
 
+  it("uses LOW thinking level for Gemini Flash minimal reasoning", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => successResponse("ok"));
+
+    await collectEvents(
+      streamGeminiCli(testModel("gemini-3-flash-preview"), testContext(), {
+        apiKey: JSON.stringify({ token: "token", projectId: "project" }),
+        fetch: fetchMock as typeof fetch,
+        reasoning: "minimal",
+      } satisfies SimpleStreamOptions),
+    );
+    await collectEvents(
+      streamGeminiCli(testModel("gemini-3-flash-preview"), testContext(), {
+        apiKey: JSON.stringify({ token: "token", projectId: "project" }),
+        fetch: fetchMock as typeof fetch,
+      } satisfies SimpleStreamOptions),
+    );
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)),
+    );
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.request.generationConfig.thinkingConfig.thinkingLevel).toBe("LOW");
+    }
+  });
+
   it("converts tool results and emits a valid tool call", async () => {
     const context = testContext({ withTool: true });
     context.messages.push(

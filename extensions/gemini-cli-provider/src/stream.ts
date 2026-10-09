@@ -32,7 +32,7 @@ interface GeminiCliRequest {
       temperature?: number;
       thinkingConfig?: {
         includeThoughts?: boolean;
-        thinkingLevel?: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
+        thinkingLevel?: "LOW" | "MEDIUM" | "HIGH";
         thinkingBudget?: number;
       };
     };
@@ -198,7 +198,7 @@ function isGemini3FlashModel(modelId: string): boolean {
 function toThinkingLevel(
   modelId: string,
   reasoning: SimpleStreamOptions["reasoning"],
-): "MINIMAL" | "LOW" | "MEDIUM" | "HIGH" | undefined {
+): "LOW" | "MEDIUM" | "HIGH" | undefined {
   if (isGemini3ProModel(modelId)) {
     switch (reasoning) {
       case "minimal":
@@ -214,7 +214,7 @@ function toThinkingLevel(
 
   switch (reasoning) {
     case "minimal":
-      return "MINIMAL";
+      return "LOW";
     case "low":
       return "LOW";
     case "medium":
@@ -226,9 +226,9 @@ function toThinkingLevel(
   }
 }
 
-function getDisabledThinkingConfig(modelId: string): { thinkingLevel?: "MINIMAL" | "LOW"; thinkingBudget?: number } {
+function getDisabledThinkingConfig(modelId: string): { thinkingLevel?: "LOW"; thinkingBudget?: number } {
   if (isGemini3ProModel(modelId)) return { thinkingLevel: "LOW" };
-  if (isGemini3FlashModel(modelId)) return { thinkingLevel: "MINIMAL" };
+  if (isGemini3FlashModel(modelId)) return { thinkingLevel: "LOW" };
   return { thinkingBudget: 0 };
 }
 

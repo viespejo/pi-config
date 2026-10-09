@@ -110,7 +110,31 @@ function truncateCommand(command: string) {
 
 function extractTextContent(responseText: string) {
   const fenced = responseText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return fenced ? fenced[1]!.trim() : responseText.trim();
+  if (fenced) return fenced[1]!.trim();
+
+  const start = responseText.indexOf("{");
+  if (start < 0) return responseText.trim();
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < responseText.length; i++) {
+    const char = responseText[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+
+    if (char === '"') inString = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) {
+      return responseText.slice(start, i + 1).trim();
+    }
+  }
+
+  return responseText.trim();
 }
 
 function parseExplainerJson(responseText: string): ExplainerOutput | null {
@@ -275,11 +299,20 @@ export async function generateBashExplanation(params: {
 
       const parsed = parseExplainerJson(responseText);
       if (!parsed) {
+        const responsePreview = responseText.slice(0, 1200);
+        const responseWasTruncated = responseText.length > responsePreview.length;
+        const contentTypes = response.content.map((block) => block.type).join(", ");
         return {
           ok: false,
           error: {
             code: "invalid-json",
-            message: "Explainer did not return valid JSON.",
+            message: [
+              "Explainer did not return valid JSON.",
+              `Content types: ${contentTypes || "none"}.`,
+              `Stop reason: ${response.stopReason}.`,
+              ...(response.errorMessage ? [`Provider error: ${response.errorMessage}.`] : []),
+              `Raw text${responseWasTruncated ? " (first 1200 characters)" : ""}: ${JSON.stringify(responsePreview)}`,
+            ].join(" "),
           },
         };
       }
