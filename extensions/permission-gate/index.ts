@@ -98,6 +98,7 @@ export default function (pi: ExtensionAPI) {
   // In-memory allow list for the running session. If the user chooses
   // "always allow for this session" we add the tool name here and skip prompts.
   const sessionAllow = new Set<string>();
+  const gateState = { enabled: true };
 
   let warmupStarted = false;
   let internalDiffFallbackNotified = false;
@@ -122,9 +123,11 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  registerPgateCommand(pi, sessionAllow);
+  registerPgateCommand(pi, sessionAllow, gateState);
 
   pi.on("tool_call", async (event, ctx) => {
+    if (!gateState.enabled) return;
+
     const gateCtx = ctx as unknown as GateCtx;
     const typedEvent = event as { toolName?: string; input?: unknown };
     const tool = typedEvent.toolName ?? "tool";

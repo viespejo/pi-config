@@ -26,6 +26,7 @@ function notifyCommand(ctx: any, message: string, level: NotifyLevel = "info") {
 export function registerPgateCommand(
   pi: ExtensionAPI,
   sessionAllow: Set<string>,
+  gateState: { enabled: boolean },
 ) {
   if (typeof (pi as any).registerCommand !== "function") {
     return;
@@ -33,19 +34,29 @@ export function registerPgateCommand(
 
   pi.registerCommand("pgate", {
     description:
-      "permission-gate operational command: status|test|reload|clear-session",
+      "permission-gate operational command: status|enable|disable|test|reload|clear-session",
     handler: async (args, ctx) => {
       const raw = String(args ?? "").trim();
       const [subcommand, ...rest] =
         raw.length > 0 ? raw.split(/\s+/) : ["status"];
       const cwd = (ctx as any).cwd ?? process.cwd();
 
+      if (subcommand === "enable" || subcommand === "disable") {
+        gateState.enabled = subcommand === "enable";
+        notifyCommand(
+          ctx,
+          `permission-gate ${gateState.enabled ? "enabled" : "disabled"} for this session.`,
+          "info",
+        );
+        return;
+      }
+
       if (subcommand === "status") {
         const state = loadPermissionState(cwd);
         const count = totalRuleCount(state);
         notifyCommand(
           ctx,
-          `permission-gate status: source=${state.activeSource}, rules=${count} (allow=${state.merged.allow.length}, ask=${state.merged.ask.length}, deny=${state.merged.deny.length}), warnings=${state.warnings.length}`,
+          `permission-gate status: enabled=${gateState.enabled}, source=${state.activeSource}, rules=${count} (allow=${state.merged.allow.length}, ask=${state.merged.ask.length}, deny=${state.merged.deny.length}), warnings=${state.warnings.length}`,
           "info",
         );
         return;
@@ -137,7 +148,7 @@ export function registerPgateCommand(
 
       notifyCommand(
         ctx,
-        "Unknown /pgate subcommand. Use: status | test Bash(...) | test Read(...) | reload | clear-session",
+        "Unknown /pgate subcommand. Use: status | enable | disable | test Bash(...) | test Read(...) | reload | clear-session",
         "warning",
       );
     },
