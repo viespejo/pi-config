@@ -194,7 +194,7 @@ export default function namespacedPrompts(pi: ExtensionAPI) {
           const parsed = parseTemplateFile(fileContents);
           const expanded = expandTemplate(parsed.body, parseArgs(args));
 
-          pi.sendUserMessage(expanded);
+          pi.sendUserMessage(expanded, { deliverAs: "followUp" });
         },
       });
     }

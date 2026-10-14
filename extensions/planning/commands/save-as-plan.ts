@@ -431,7 +431,7 @@ export function setupSaveAsPlanCommand(pi: ExtensionAPI) {
         }
       }
 
-      pi.sendUserMessage(prompt);
+      pi.sendUserMessage(prompt, { deliverAs: "followUp" });
     },
   });
 }

@@ -248,5 +248,5 @@ export async function executePlanFlow(
     ...(currentSessionId ? { sessionId: currentSessionId } : {}),
   });
 
-  pi.sendUserMessage(finalPrompt);
+  pi.sendUserMessage(finalPrompt, { deliverAs: "followUp" });
 }
