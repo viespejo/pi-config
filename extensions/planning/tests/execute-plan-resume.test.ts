@@ -97,6 +97,7 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   );
 
   let sent = "";
+  let sessionName = "";
 
   const ctx = {
     ui: {
@@ -108,7 +109,9 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   } as any;
 
   const pi = {
-    setSessionName: () => {},
+    setSessionName: (name: string) => {
+      sessionName = name;
+    },
     getActiveTools: () => ["read", "bash", "edit", "write"],
     setActiveTools: () => {},
     appendEntry: () => {},
@@ -126,6 +129,40 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
 
   assert.match(sent, /<runtime_resume_instruction>Resume execution at Task 2 \(id: task-2\)\. Do not process any previous task\.<\/runtime_resume_instruction>/);
+  assert.equal(sessionName, "Apply Execution Log Adaptation · Task 2: B");
+});
+
+test("executePlanFlow does not advance past a task with only a follow-up record", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
+  const plan = mkPlan(tmpDir);
+  const logPath = path.join(tmpDir, `${plan.slug}.execution.jsonl`);
+  await fs.writeFile(
+    logPath,
+    `${JSON.stringify({ timestamp: "2026-05-17T01:00:00.000Z", taskId: "task-1", recordType: "follow_up", note: "Still in progress." })}\n`,
+    "utf-8",
+  );
+
+  let sent = "";
+  const ctx = {
+    ui: { notify: () => {}, select: async () => "yes", setWidget: () => {} },
+    sessionManager: { getSessionFile: () => "s-1" },
+  } as any;
+  const pi = {
+    setSessionName: () => {},
+    getActiveTools: () => ["read", "bash", "edit", "write"],
+    setActiveTools: () => {},
+    appendEntry: () => {},
+    sendUserMessage: (message: string) => { sent = message; },
+  } as any;
+  const planService = {
+    getPlansPath: () => tmpDir,
+    readPlan: async () => mkPlanContent(),
+    updatePlanStatus: async () => {},
+  } as any;
+
+  await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
+
+  assert.match(sent, /Resume execution at Task 1 \(id: task-1\)/);
 });
 
 test("executePlanFlow resumes from highest recorded task when latest record is an earlier-task follow-up", async () => {

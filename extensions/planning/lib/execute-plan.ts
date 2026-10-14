@@ -34,6 +34,7 @@ import { buildClaudeCodeStrictApplyExecutePrompt } from "./prompts/execute-plan-
 
 interface ParsedPlanTask {
   id?: string;
+  name?: string;
 }
 
 function parsePlanTasks(planContent: string): ParsedPlanTask[] {
@@ -42,7 +43,8 @@ function parsePlanTasks(planContent: string): ParsedPlanTask[] {
     const attrs = block[0].match(/<task\b([^>]*)>/);
     const attrText = attrs?.[1] ?? "";
     const idMatch = attrText.match(/\bid\s*=\s*"([^"]+)"/) ?? attrText.match(/\btaskId\s*=\s*"([^"]+)"/);
-    return { id: idMatch?.[1] };
+    const nameMatch = block[1]?.match(/<name\b[^>]*>([\s\S]*?)<\/name>/);
+    return { id: idMatch?.[1], name: nameMatch?.[1]?.trim() };
   });
 }
 
@@ -85,7 +87,8 @@ export async function executePlanFlow(
   const planContent = await planService.readPlan(plan.path);
 
   const executionLogPath = buildExecutionLogPath(planService.getPlansPath(), plan.slug);
-  const taskIds = resolveStableTaskIds(parsePlanTasks(planContent));
+  const planTasks = parsePlanTasks(planContent);
+  const taskIds = resolveStableTaskIds(planTasks);
   let resumeNextTaskIndex = 0;
 
   try {
@@ -107,8 +110,15 @@ export async function executePlanFlow(
     const logContent = await fs.readFile(executionLogPath, "utf-8");
     const parsed = parseExecutionLogJsonl(logContent, taskIds);
     if (parsed.length > 0) {
-      const maxTaskIndex = Math.max(...parsed.map((entry) => entry.taskIndex));
-      resumeNextTaskIndex = maxTaskIndex + 1;
+      const terminalRecords = parsed.filter(
+        (entry) => (entry.record.recordType ?? "terminal") === "terminal",
+      );
+      if (terminalRecords.length > 0) {
+        const maxTerminalTaskIndex = Math.max(
+          ...terminalRecords.map((entry) => entry.taskIndex),
+        );
+        resumeNextTaskIndex = maxTerminalTaskIndex + 1;
+      }
     }
 
     if (taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length) {
@@ -210,7 +220,11 @@ export async function executePlanFlow(
   }
 
   if (planTitle) {
-    pi.setSessionName(planTitle);
+    const currentTask = planTasks[resumeNextTaskIndex];
+    const sessionName = currentTask
+      ? `${planTitle} · Task ${resumeTaskNumber}: ${currentTask.name || currentTask.id || taskIds[resumeNextTaskIndex]}`
+      : planTitle;
+    pi.setSessionName(sessionName);
   }
 
   const executionContext = {
