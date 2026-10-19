@@ -265,7 +265,7 @@ const NVR_WAIT_ARG = "--remote-wait-silent";
 const NVR_NOWAIT_ARG = "--remote-silent";
 const NVR_PRE_OPEN_ARGS = ["-cc", "split"];
 const FOLD_LUA_CMD =
-  "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); pcall(vim.api.nvim_win_set_cursor,0,{l+1,0}); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); pcall(vim.api.nvim_win_set_cursor,0,{last_line,last_col})";
+  "lua local marker='<!-- PI_PROMPT_START -->'; local l=vim.fn.search('\\\\V'..marker,'nw'); vim.cmd('silent! normal! zE'); if l>0 then vim.b.disable_autoformat=true; local file=vim.api.nvim_buf_get_name(0); local group=vim.api.nvim_create_augroup('PiEditorContext_'..vim.fn.sha256(file),{clear=true}); vim.api.nvim_create_autocmd('BufReadPost',{group=group,callback=function(ev) if not (vim.uv or vim.loop).fs_stat(file) then vim.api.nvim_del_augroup_by_id(group); return end; if vim.api.nvim_buf_get_name(ev.buf)==file then vim.b[ev.buf].disable_autoformat=true end end}); vim.wo.foldmethod='manual'; vim.wo.foldenable=true; vim.cmd(('1,%dfold'):format(l)); pcall(vim.api.nvim_win_set_cursor,0,{l+1,0}); vim.cmd('normal! zt'); end; local last_line=vim.fn.line('$'); local last_col=math.max(vim.fn.col({last_line,'$'})-1,0); pcall(vim.api.nvim_win_set_cursor,0,{last_line,last_col})";
 const NVR_REMOTE_COMMANDS = ["+setlocal bufhidden=delete", `+${FOLD_LUA_CMD}`];
 const NVIM_INIT_ARGS = ["-c", "setlocal bufhidden=delete", "-c", FOLD_LUA_CMD];
 

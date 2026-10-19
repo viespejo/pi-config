@@ -84,6 +84,70 @@ async function withPathPrefix(pathPrefix, run) {
 
 export const testCases = [
   {
+    name: "context-editor-setup-disables-buffer-autoformat-on-both-routes",
+    ac: ["AC-3", "AC-6"],
+    setup:
+      "Capture standalone and remote editor arguments using fake executables and a synthetic prompt.",
+    invocation:
+      "Open the synthetic working file through nvim and nvr modes and compare their Lua setup commands.",
+    assertions:
+      "Both routes disable buffer-local autoformat only inside the context-marker branch; prompt whitespace remains unchanged.",
+    run: async () => {
+      const sandbox = await makeTempDir("pi-editor-autoformat-");
+      const binDir = path.join(sandbox, "bin");
+      const captureFile = path.join(sandbox, "args.json");
+      const tempFile = path.join(sandbox, "working.md");
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.writeFile(tempFile, buildWorkingFile("Synthetic context", "Prompt body"), "utf8");
+      const mockEditor = `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args.includes('--serverlist')) {
+  process.stdout.write('SERVER_A\\n');
+  process.exit(0);
+}
+fs.writeFileSync(${JSON.stringify(captureFile)}, JSON.stringify(args));
+`;
+      await writeExecutable(path.join(binDir, "nvim"), mockEditor);
+      await writeExecutable(path.join(binDir, "nvr"), mockEditor);
+
+      try {
+        const commands = [];
+        for (const mode of ["nvim", "nvr"]) {
+          await withPathPrefix(binDir, async () =>
+            openEditor(tempFile, { openMode: mode }, { NVIM: "SERVER_A", PWD: sandbox }),
+          );
+          const args = JSON.parse(await fs.readFile(captureFile, "utf8"));
+          const command = args.find((arg) => arg.includes("local marker="));
+          assert(command, `${mode} must receive the context setup command`);
+          assertIncludes(
+            command,
+            "if l>0 then vim.b.disable_autoformat=true;",
+            "Autoformat must be disabled only in the context-marker branch",
+          );
+          assertNotIncludes(command, "vim.g.disable_autoformat", "Do not disable global formatting");
+          assertIncludes(command, "vim.api.nvim_buf_get_name(ev.buf)==file", "Reapply only to the exact intermediary path");
+          assertIncludes(command, "'BufReadPost'", "Reapply the flag when a deleted buffer is reloaded");
+          assertIncludes(command, "vim.api.nvim_del_augroup_by_id(group)", "Remove the owned rule when its file disappears");
+          assert(args.some((arg) => arg.includes("setlocal bufhidden=delete")), "Preserve buffer deletion on close");
+          if (mode === "nvr") {
+            assert(args.includes("--remote-wait-silent"), "Preserve nvr wait semantics");
+          }
+          commands.push(command.replace(/^\+/, ""));
+        }
+        assert(commands[0] === commands[1], "Standalone and remote setup must match");
+        for (const prompt of ["", "Prompt body", "\nPrompt body", "  Prompt body", "Prompt body\n"]) {
+          assert(
+            extractPromptFromWorkingFile(buildWorkingFile("Synthetic context", prompt)) === prompt,
+            "Prompt extraction must preserve intentional whitespace",
+          );
+        }
+      } finally {
+        await fs.rm(sandbox, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     name: "branch-selects-most-recent-leaf-path",
     ac: ["AC-1"],
     setup:
