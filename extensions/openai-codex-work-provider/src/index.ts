@@ -1,15 +1,10 @@
-import {
-  builtinProviders,
-  getBuiltinModels,
-} from "@earendil-works/pi-ai/providers/all";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import {
   createOAuthAdapter,
   isOpenAICodexOAuth,
 } from "./oauth-adapter.js";
-import type {
-  ExtensionAPI,
-  ProviderModelConfig,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getOpenAICodexWorkModels } from "./models.js";
 
 const PROVIDER_ID = "openai-codex-work";
 const PROVIDER_NAME = "ChatGPT Plus/Pro (Codex Work Subscription)";
@@ -25,20 +20,25 @@ export default function registerOpenAICodexWorkProvider(pi: ExtensionAPI): void 
     );
   }
 
-  const sourceModels = getBuiltinModels("openai-codex");
-  const models = sourceModels.map((sourceModel): ProviderModelConfig => {
-    const { provider: _provider, ...model } = structuredClone(sourceModel);
-    return { ...model, name: `${model.name} (Work)` };
-  });
-
-  pi.registerProvider(PROVIDER_ID, {
-    name: PROVIDER_NAME,
-    baseUrl: CODEX_BASE_URL,
-    api: "openai-codex-responses",
-    oauth: {
+  const oauth = createOAuthAdapter(openaiCodexOAuth);
+  const registerModels = (models: ReturnType<typeof getOpenAICodexWorkModels>) => {
+    pi.registerProvider(PROVIDER_ID, {
       name: PROVIDER_NAME,
-      ...createOAuthAdapter(openaiCodexOAuth),
-    },
-    models,
+      baseUrl: CODEX_BASE_URL,
+      api: "openai-codex-responses",
+      oauth: {
+        name: PROVIDER_NAME,
+        ...oauth,
+      },
+      models,
+    });
+  };
+
+  registerModels(getOpenAICodexWorkModels());
+  pi.on("session_start", (_event, ctx) => {
+    const sourceModels = ctx.modelRegistry.getModelsOfType("chat", "openai-codex");
+    if (sourceModels.length > 0) {
+      registerModels(getOpenAICodexWorkModels(sourceModels));
+    }
   });
 }
