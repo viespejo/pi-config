@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { getOpenAICodexWorkModels } from "../src/models.ts";
 
@@ -64,6 +67,33 @@ test("copies models from Pi's merged Codex catalog into the Work provider", () =
     ...modelWithoutProvider,
     name: "GPT-6.1 Terra (Work)",
   });
+});
+
+test("loads Pi's stored catalog before session_start and tolerates unavailable storage", () => {
+  const directory = mkdtempSync(join(tmpdir(), "codex-work-models-"));
+  const previousDirectory = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = directory;
+  try {
+    const baseline = getOpenAICodexWorkModels();
+    const existing = baseline[0];
+    assert.ok(existing);
+    const storedModel = { ...terraModel, id: "catalog-only-model" };
+    writeFileSync(join(directory, "models-store.json"), JSON.stringify({
+      "openai-codex": {
+        models: [storedModel, { ...terraModel, id: existing.id, contextWindow: 600000 }],
+      },
+    }));
+    const models = getOpenAICodexWorkModels();
+    assert.ok(models.some((model) => model.id === storedModel.id));
+    assert.equal(models.filter((model) => model.id === existing.id).length, 1);
+    assert.equal(models.find((model) => model.id === existing.id)?.contextWindow, 600000);
+    writeFileSync(join(directory, "models-store.json"), "invalid JSON");
+    assert.deepEqual(getOpenAICodexWorkModels(), baseline);
+  } finally {
+    if (previousDirectory === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousDirectory;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("preserves newly added catalog entries without hardcoding model ids", () => {
