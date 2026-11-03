@@ -35,7 +35,6 @@ import { buildClaudeCodeStrictApplyExecutePrompt } from "./prompts/execute-plan-
 interface ParsedPlanTask {
   id?: string;
   name?: string;
-  isCheckpoint: boolean;
 }
 
 function parsePlanTasks(planContent: string): ParsedPlanTask[] {
@@ -44,13 +43,8 @@ function parsePlanTasks(planContent: string): ParsedPlanTask[] {
     const attrs = block[0].match(/<task\b([^>]*)>/);
     const attrText = attrs?.[1] ?? "";
     const idMatch = attrText.match(/\bid\s*=\s*"([^"]+)"/) ?? attrText.match(/\btaskId\s*=\s*"([^"]+)"/);
-    const typeMatch = attrText.match(/\btype\s*=\s*"([^"]+)"/);
     const nameMatch = block[1]?.match(/<name\b[^>]*>([\s\S]*?)<\/name>/);
-    return {
-      id: idMatch?.[1],
-      name: nameMatch?.[1]?.trim(),
-      isCheckpoint: typeMatch?.[1].startsWith("checkpoint:") ?? false,
-    };
+    return { id: idMatch?.[1], name: nameMatch?.[1]?.trim() };
   });
 }
 
@@ -144,13 +138,7 @@ export async function executePlanFlow(
     }
   }
 
-  while (planTasks[resumeNextTaskIndex]?.isCheckpoint) {
-    resumeNextTaskIndex += 1;
-  }
-
-  const resumeTaskNumber = planTasks
-    .slice(0, resumeNextTaskIndex + 1)
-    .filter((task) => !task.isCheckpoint).length;
+  const resumeTaskNumber = resumeNextTaskIndex + 1;
   const resumeTaskId = taskIds[resumeNextTaskIndex];
   const executionAlreadyComplete = taskIds.length > 0 && resumeNextTaskIndex >= taskIds.length;
   const resumeInstruction = executionAlreadyComplete

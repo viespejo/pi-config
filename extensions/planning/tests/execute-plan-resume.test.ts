@@ -132,7 +132,7 @@ test("executePlanFlow resumes from next task index when log is confirmed", async
   assert.equal(sessionName, "Apply Execution Log Adaptation · Task 2: B");
 });
 
-test("executePlanFlow skips checkpoints when naming and resuming the next task", async () => {
+test("executePlanFlow does not skip a checkpoint when resuming", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
   const plan = mkPlan(tmpDir);
   const logPath = path.join(tmpDir, `${plan.slug}.execution.jsonl`);
@@ -163,8 +163,37 @@ test("executePlanFlow skips checkpoints when naming and resuming the next task",
 
   await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
 
-  assert.match(sent, /Resume execution at Task 3 \(id: task-4\)/);
-  assert.equal(sessionName, "Apply Execution Log Adaptation · Task 3: Task 3: C");
+  assert.match(sent, /Resume execution at Task 3 \(id: task-3\)/);
+  assert.equal(sessionName, "Apply Execution Log Adaptation · Task 3: task-3");
+});
+
+test("executePlanFlow starts at the first checkpoint in a new plan", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "planning-resume-"));
+  const plan = mkPlan(tmpDir);
+
+  let sent = "";
+  let sessionName = "";
+  const ctx = {
+    ui: { notify: () => {}, select: async () => "yes", setWidget: () => {} },
+    sessionManager: { getSessionFile: () => "s-1" },
+  } as any;
+  const pi = {
+    setSessionName: (name: string) => { sessionName = name; },
+    getActiveTools: () => ["read", "bash", "edit", "write"],
+    setActiveTools: () => {},
+    appendEntry: () => {},
+    sendUserMessage: (message: string) => { sent = message; },
+  } as any;
+  const planService = {
+    getPlansPath: () => tmpDir,
+    readPlan: async () => `<tasks>\n<task type="checkpoint:human-verify" gate="blocking"><name>Task 1: Verify the proposal</name><how-to-verify>Review it.</how-to-verify></task>\n<task type="auto"><name>Task 2: Implement</name></task>\n</tasks>`,
+    updatePlanStatus: async () => {},
+  } as any;
+
+  await executePlanFlow(plan, [plan], planService, ctx, pi, "PROMPT");
+
+  assert.match(sent, /Resume execution at Task 1 \(id: task-1\)/);
+  assert.equal(sessionName, "Apply Execution Log Adaptation · Task 1: Task 1: Verify the proposal");
 });
 
 test("executePlanFlow does not advance past a task with only a follow-up record", async () => {
