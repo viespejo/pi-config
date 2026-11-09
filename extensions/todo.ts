@@ -101,7 +101,7 @@ interface TodoSettings {
 type KeybindingMatcher = Pick<KeybindingsManager, "matches">;
 
 const TodoParams = Type.Object({
-  action: StringEnum([
+  action: Type.Unsafe<TodoAction>(StringEnum([
     "list",
     "list-all",
     "get",
@@ -111,7 +111,7 @@ const TodoParams = Type.Object({
     "delete",
     "claim",
     "release",
-  ] as const),
+  ] as const)),
   id: Type.Optional(
     Type.String({ description: "Todo id (TODO-<hex> or raw hex filename)" }),
   ),

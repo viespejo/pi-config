@@ -4,9 +4,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { Api, Model } from "@earendil-works/pi-ai";
+
 import { getOpenAICodexWorkModels } from "../src/models.ts";
 
-const terraModel = {
+const terraModel: Model<Api> = {
   id: "gpt-6.1-terra",
   name: "GPT-6.1 Terra",
   api: "openai-codex-responses",
@@ -86,7 +88,9 @@ test("loads Pi's stored catalog before session_start and tolerates unavailable s
     const models = getOpenAICodexWorkModels();
     assert.ok(models.some((model) => model.id === storedModel.id));
     assert.equal(models.filter((model) => model.id === existing.id).length, 1);
-    assert.equal(models.find((model) => model.id === existing.id)?.contextWindow, 600000);
+    const overriddenModel = models.find((model) => model.id === existing.id);
+    assert.ok(overriddenModel && (overriddenModel.type === undefined || overriddenModel.type === "chat"));
+    assert.equal(overriddenModel.contextWindow, 600000);
     writeFileSync(join(directory, "models-store.json"), "invalid JSON");
     assert.deepEqual(getOpenAICodexWorkModels(), baseline);
   } finally {
